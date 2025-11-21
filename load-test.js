@@ -2,7 +2,7 @@
  * k6 Load Test for STT API with LibriSpeech Dataset
  * 
  * Features:
- * - Random audio file selection from 2,620 LibriSpeech test-clean FLAC files
+ * - Random audio file selection from LibriSpeech test-clean dataset (100 files by default)
  * - Configurable VUs and load patterns via environment variables
  * - Test mode presets (smoke, load, stress, soak)
  * - Dynamic stage generation with gradual ramp-up
@@ -10,24 +10,22 @@
  * - CI/CD friendly configuration
  * 
  * Usage:
- *   # Load environment from .env.k6
- *   k6 run --env-file .env.k6 load-test.js
+ *   # Use wrapper script (recommended)
+ *   ./scripts/run-load-test.sh -e TEST_MODE=smoke load-test.js
  * 
- *   # Override with test mode
+ *   # Or run k6 directly with environment variables
  *   k6 run -e TEST_MODE=smoke load-test.js
  * 
- *   # Custom configuration
- *   k6 run -e MAX_VUS=150 -e RAMP_UP_DURATION=5m load-test.js
- * 
  * Requirements:
- *   - Run scripts/generate-audio-list.sh first to download dataset
+ *   - Run scripts/generate-audio-list.sh first to prepare dataset
+ *     (Downloads LibriSpeech, converts to WAV, selects random 100 files)
  *   - Backend service running (default: http://localhost:8000)
  */
 
 import { FormData } from 'https://jslib.k6.io/formdata/0.0.2/index.js';
 import { check, sleep } from 'k6';
-import { Counter, Rate, Trend } from 'k6/metrics';
 import http from 'k6/http';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
 // =============================================================================
 // CONFIGURATION & CONSTANTS
@@ -121,6 +119,62 @@ let audioFileContents = {};
 let singleAudioFile = null;
 let requestCounter = 0;
 
+// Load audio files list in init stage (required by k6)
+if (USE_RANDOM_AUDIO) {
+  const listPath = __ENV.AUDIO_FILES_LIST || 'samples/audio-files.json';
+  try {
+    const content = open(listPath);
+    audioFiles = JSON.parse(content);
+    if (!Array.isArray(audioFiles) || audioFiles.length === 0) {
+      throw new Error('File list is empty or invalid');
+    }
+    
+    console.log(`Loading ${audioFiles.length} audio files into memory...`);
+    
+    // Preload all audio file contents during init stage (required by k6)
+    // All files must be opened in the global init context - k6 doesn't allow
+    // opening new files during VU initialization or test execution
+    for (const filePath of audioFiles) {
+      try {
+        const content = open(filePath, 'b');
+        // k6 open() with 'b' returns an ArrayBuffer-like object
+        // Check if content exists and has byteLength (for ArrayBuffer) or length
+        const size = content ? (content.byteLength || content.length) : 0;
+        
+        if (content && size > 0) {
+          audioFileContents[filePath] = content;
+        } else {
+          console.warn(`  Skipping empty file: ${filePath}`);
+        }
+      } catch (e) {
+        console.warn(`  Failed to load: ${filePath} - ${e.message}`);
+      }
+    }
+    
+    // Update audioFiles array to only include successfully loaded files
+    audioFiles = Object.keys(audioFileContents);
+    
+    console.log(`✓ Loaded ${audioFiles.length} audio files successfully`);
+    
+    // Ensure we have at least some files loaded
+    if (audioFiles.length === 0) {
+      throw new Error('No audio files could be loaded successfully');
+    }
+  } catch (error) {
+    console.error(`Failed to load audio files list from ${listPath}`);
+    console.error(`Error: ${error.message}`);
+    console.error('');
+    console.error('To fix this:');
+    console.error('  1. Ensure you are running from project root directory');
+    console.error('  2. Run: ./scripts/generate-audio-list.sh');
+    console.error('  3. Or verify samples/audio-files.json exists with relative paths');
+    throw new Error('Audio files list not found or invalid');
+  }
+} else {
+  const singleFilePath = __ENV.AUDIO_FILE_PATH || 'samples/sample-audio.wav';
+  singleAudioFile = open(singleFilePath, 'b');
+}
+
 /**
  * Parse duration string (e.g., "10m", "30s") to seconds
  */
@@ -173,54 +227,11 @@ function buildStages(maxVus, rampUp, steady, rampDown, steps) {
 }
 
 /**
- * Discover audio files from directory
- * Note: In k6, we need to build the file list at init time
- * Since k6 doesn't have native directory listing, we expect either:
- * 1. A pre-generated JSON file (optional, for faster init)
- * 2. Or we'll scan and cache during setup
- */
-function loadAudioFilesList() {
-  const audioDir = __ENV.AUDIO_DIR || '/workspaces/stt-microservice/samples/test-clean';
-  const listPath = __ENV.AUDIO_FILES_LIST || `${audioDir}/../audio-files.json`;
-  
-  // Try to load from JSON first (if exists)
-  try {
-    const content = open(listPath);
-    const files = JSON.parse(content);
-    
-    if (Array.isArray(files) && files.length > 0) {
-      console.log(`Loaded ${files.length} audio files from cached list: ${listPath}`);
-      return files;
-    }
-  } catch (error) {
-    // JSON doesn't exist, will scan directory instead
-  }
-  
-  // Scan directory for FLAC files
-  // k6 limitation: we need to manually build the list
-  // This is a workaround - in production, generate the JSON file first
-  console.log(`Scanning directory for FLAC files: ${audioDir}`);
-  console.warn('WARNING: Directory scanning in k6 is not supported natively.');
-  console.warn('For best performance, run: scripts/generate-audio-list.sh first');
-  console.warn('This will generate samples/audio-files.json with all file paths');
-  
-  throw new Error(
-    'Audio files list not found. Please run: scripts/generate-audio-list.sh\n' +
-    'This script will download the LibriSpeech dataset and generate the file list.'
-  );
-}
-
-/**
  * Pick a random audio file from the list
  */
 function pickRandomAudioFile() {
   const randomIndex = Math.floor(Math.random() * audioFiles.length);
   const filePath = audioFiles[randomIndex];
-  
-  // Cache file contents to avoid repeated disk reads
-  if (!audioFileContents[filePath]) {
-    audioFileContents[filePath] = open(filePath, 'b');
-  }
   
   return {
     path: filePath,
@@ -310,8 +321,6 @@ export function setup() {
   console.log(`  Random audio: ${USE_RANDOM_AUDIO}`);
   
   if (USE_RANDOM_AUDIO) {
-    // Load audio files list
-    audioFiles = loadAudioFilesList();
     console.log(`  Dataset: LibriSpeech test-clean`);
     console.log(`  Files available: ${audioFiles.length}`);
     
@@ -319,8 +328,7 @@ export function setup() {
     const speakers = new Set(audioFiles.map(f => extractSpeakerId(getAudioFileName(f))));
     console.log(`  Unique speakers: ${speakers.size}`);
   } else {
-    const singleFilePath = __ENV.AUDIO_FILE_PATH || '/workspaces/stt-microservice/samples/sample-audio.wav';
-    singleAudioFile = open(singleFilePath, 'b');
+    const singleFilePath = __ENV.AUDIO_FILE_PATH || 'samples/sample-audio.wav';
     console.log(`  Single file: ${singleFilePath}`);
   }
   
@@ -361,13 +369,22 @@ export default function (data) {
     audioFileName = 'sample-audio.wav';
   }
   
+  // Validate audio file content before proceeding
+  const fileSize = audioFile ? (audioFile.byteLength || audioFile.length || 0) : 0;
+  if (!audioFile || fileSize === 0) {
+    console.error(`Audio file content is invalid or empty: ${audioFileName}`);
+    transcriptionSuccess.add(0);
+    sleep(THINK_TIME_MIN);
+    return; // Skip this iteration
+  }
+  
   // Track audio file size (approximate from content length)
-  const fileSizeKB = audioFile.length / 1024;
+  const fileSizeKB = fileSize / 1024;
   audioFileSize.add(fileSizeKB);
   
   // Prepare multipart form data
   const formData = new FormData();
-  formData.append('audio_file', http.file(audioFile, audioFileName, 'audio/flac'));
+  formData.append('audio_file', http.file(audioFile, audioFileName, 'audio/wav'));
   formData.append('language', LANGUAGE);
   
   // Send request
@@ -391,7 +408,7 @@ export default function (data) {
       try {
         const body = r.json();
         return body.original_text !== undefined && body.original_text !== null;
-      } catch {
+      } catch (e) {
         return false;
       }
     },
@@ -399,7 +416,7 @@ export default function (data) {
       try {
         const body = r.json();
         return body.translated_text !== undefined && body.translated_text !== null;
-      } catch {
+      } catch (e) {
         return false;
       }
     },
@@ -407,7 +424,7 @@ export default function (data) {
       try {
         const body = r.json();
         return Array.isArray(body.segments);
-      } catch {
+      } catch (e) {
         return false;
       }
     },
@@ -422,7 +439,7 @@ export default function (data) {
                firstSegment.start_time !== undefined &&
                firstSegment.end_time !== undefined &&
                firstSegment.confidence !== undefined;
-      } catch {
+      } catch (e) {
         return false;
       }
     },
@@ -468,7 +485,7 @@ export default function (data) {
         try {
           const errorBody = response.json();
           console.error(`  Error: ${JSON.stringify(errorBody)}`);
-        } catch {
+        } catch (e) {
           console.error(`  Body: ${response.body.substring(0, 200)}`);
         }
       }

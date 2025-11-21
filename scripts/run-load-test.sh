@@ -27,7 +27,8 @@ else
     # Dataset exists, check if we need to regenerate the file list
     if [ ! -f "${AUDIO_LIST}" ]; then
         echo "Generating audio files list..."
-        find "${AUDIO_DIR}" -name "*.flac" -type f | sort | \
+        cd "${PROJECT_ROOT}"
+        find samples/test-clean -name "*.flac" -type f | sort | \
             jq -R -s 'split("\n") | map(select(length > 0))' > "${AUDIO_LIST}"
         FILE_COUNT=$(jq '. | length' "${AUDIO_LIST}")
         echo "✓ Generated list of ${FILE_COUNT} audio files"
@@ -50,20 +51,44 @@ fi
 echo "✓ Ready to run tests with ${FILE_COUNT} audio files"
 echo ""
 
-# Check if .env.k6 exists
-if [ ! -f "${ENV_FILE}" ]; then
+# Load environment variables from .env.k6 and export them for k6
+ENV_VARS=""
+if [ -f "${ENV_FILE}" ]; then
+    echo "Loading configuration from .env.k6..."
+    # Read .env.k6 and build -e flags for k6
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^#.*$ ]] && continue
+        [[ -z "$key" ]] && continue
+        # Remove leading/trailing whitespace and quotes
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs | sed "s/^['\"]//;s/['\"]$//")
+        
+        # Convert absolute paths to relative for path-related variables
+        if [[ "$key" == *"PATH"* ]] || [[ "$key" == *"DIR"* ]] || [[ "$key" == *"LIST"* ]]; then
+            # If value starts with absolute path to project, make it relative
+            if [[ "$value" == "${PROJECT_ROOT}/"* ]]; then
+                value="${value#${PROJECT_ROOT}/}"
+            fi
+        fi
+        
+        # Add to k6 env vars
+        ENV_VARS="$ENV_VARS -e $key=$value"
+    done < "${ENV_FILE}"
+    echo ""
+else
     echo "Warning: .env.k6 not found, using default configuration"
     echo "Create .env.k6 from .env.k6.example to customize settings"
     echo ""
 fi
 
-# Run k6 with all arguments passed through
-echo "Running k6 load test..."
-echo "Command: k6 run --env-file ${ENV_FILE} $@"
+# Change to project root before running k6 (ensures relative paths work)
+cd "${PROJECT_ROOT}"
+
+# Run k6 with environment variables and all arguments passed through
+echo "Running k6 load test from: ${PROJECT_ROOT}"
+echo "Command: k6 run $ENV_VARS $@"
 echo ""
 
-if [ -f "${ENV_FILE}" ]; then
-    k6 run --env-file "${ENV_FILE}" "$@"
-else
-    k6 run "$@"
-fi
+# shellcheck disable=SC2086
+k6 run $ENV_VARS "$@"

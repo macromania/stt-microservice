@@ -27,8 +27,8 @@ The `run-load-test.sh` wrapper automatically:
 ./scripts/generate-audio-list.sh
 
 # 2. Run tests directly with k6
-k6 run --env-file .env.k6 -e TEST_MODE=smoke load-test.js
-k6 run --env-file .env.k6 load-test.js
+export $(cat .env.k6 | grep -v '^#' | xargs) && k6 run -e TEST_MODE=smoke load-test.js
+export $(cat .env.k6 | grep -v '^#' | xargs) && k6 run load-test.js
 ```
 
 ## Prerequisites
@@ -113,7 +113,7 @@ Quick validation with minimal load:
 - Total: 2 minutes
 
 ```bash
-k6 run --env-file .env.k6 -e TEST_MODE=smoke load-test.js
+./scripts/run-load-test.sh -e TEST_MODE=smoke load-test.js
 ```
 
 #### Load Test (Default)
@@ -125,9 +125,9 @@ Standard load testing:
 - Total: 20 minutes
 
 ```bash
-k6 run --env-file .env.k6 -e TEST_MODE=load load-test.js
+./scripts/run-load-test.sh -e TEST_MODE=load load-test.js
 # or simply:
-k6 run --env-file .env.k6 load-test.js
+./scripts/run-load-test.sh load-test.js
 ```
 
 #### Stress Test
@@ -139,7 +139,7 @@ High load to find breaking points:
 - Total: 30 minutes
 
 ```bash
-k6 run --env-file .env.k6 -e TEST_MODE=stress load-test.js
+./scripts/run-load-test.sh -e TEST_MODE=stress load-test.js
 ```
 
 #### Soak Test
@@ -151,7 +151,7 @@ Extended duration for stability:
 - Total: 70 minutes
 
 ```bash
-k6 run --env-file .env.k6 -e TEST_MODE=soak load-test.js
+./scripts/run-load-test.sh -e TEST_MODE=soak load-test.js
 ```
 
 ## Custom Configuration
@@ -179,8 +179,8 @@ Override any environment variable:
   -e AUDIO_FILE_PATH=samples/sample-audio.wav \
   load-test.js
 
-# Direct k6 usage (if you prefer)
-k6 run --env-file .env.k6 -e MAX_VUS=150 load-test.js
+# Direct k6 usage (if you prefer - requires exporting env vars first)
+export $(cat .env.k6 | grep -v '^#' | xargs) && k6 run -e MAX_VUS=150 load-test.js
 ```
 
 ## Understanding Results
@@ -249,17 +249,17 @@ vus_max........................: 100     min=100   max=100
 
 ```bash
 # JSON output for analysis
-k6 run --env-file .env.k6 --out json=results.json load-test.js
+./scripts/run-load-test.sh --out json=results.json load-test.js
 
 # CSV output
-k6 run --env-file .env.k6 --out csv=results.csv load-test.js
+./scripts/run-load-test.sh --out csv=results.csv load-test.js
 ```
 
 ### Cloud Execution
 
 ```bash
 # k6 Cloud (requires account)
-k6 cloud --env-file .env.k6 load-test.js
+export $(cat .env.k6 | grep -v '^#' | xargs) && k6 cloud load-test.js
 ```
 
 ### CI/CD Integration
@@ -292,10 +292,10 @@ jobs:
         run: ./scripts/generate-audio-list.sh
       
       - name: Run smoke test
-        run: k6 run --env-file .env.k6 -e TEST_MODE=smoke load-test.js
+        run: ./scripts/run-load-test.sh -e TEST_MODE=smoke load-test.js
       
       - name: Run load test
-        run: k6 run --env-file .env.k6 -e BASE_URL=${{ secrets.API_URL }} load-test.js
+        run: ./scripts/run-load-test.sh -e BASE_URL=${{ secrets.API_URL }} load-test.js
 ```
 
 ## Troubleshooting
