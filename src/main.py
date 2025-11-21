@@ -7,8 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.stt import router as stt_router
 from src.core.config import get_settings
 from src.core.logging import setup_logging
+from src.core.trace import extract_or_generate_trace_id, set_trace_id
 
 # Initial basic logging configuration to capture logs during startup
 logging.basicConfig(level=logging.INFO, force=True, format="%(asctime)s - %(levelname)s:    %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -57,20 +59,34 @@ app.add_middleware(
 async def request_logging_middleware(request: Request, call_next):
     """Log all requests with timing and trace ID.
 
-    OpenTelemetry's FastAPIInstrumentor automatically creates spans for HTTP requests
-    and extracts/propagates trace IDs from X-Trace-ID headers. This middleware simply
-    retrieves the trace ID for logging consistency and adds it to response headers.
+    Extracts or generates a trace ID for each request, stores it in context,
+    and adds it to response headers for distributed tracing.
     """
     start_time = time.time()
 
-    # Process request (OpenTelemetry span is automatically created by FastAPIInstrumentor)
+    # Extract or generate trace ID and set in context
+    trace_id = extract_or_generate_trace_id(request)
+    set_trace_id(trace_id)
+    short_trace_id = trace_id[:8]
+
+    # Process request
     response = await call_next(request)
+
+    # Add trace ID to response headers
+    response.headers["X-Trace-ID"] = trace_id
 
     # Log request with structured fields
     processing_time = time.time() - start_time
-    logger.info(f"Request: {request.method} {request.url} - Status: {response.status_code} - Time: {processing_time:.3f}s")
+    logger.info(
+        f"[{short_trace_id}] {request.method} {request.url.path} - Status: {response.status_code} - Time: {processing_time:.3f}s",
+        extra={"trace_id": trace_id},
+    )
 
     return response
+
+
+# Register API routers
+app.include_router(stt_router)
 
 
 @app.get("/")
