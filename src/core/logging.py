@@ -29,9 +29,10 @@ def setup_logging(log_level: str = "INFO") -> None:
         "uvicorn.access": logging.WARNING,
         "httpx": logging.WARNING,
         "azure.core": logging.WARNING,
-        "azure.monitor": logging.ERROR,  # Suppress config version mismatch warnings
+        "azure.monitor": logging.WARNING,  # Suppress config version mismatch warnings
         "azure": logging.WARNING,
-        "azure.identity": logging.ERROR,  # Suppress authentication debug noise
+        "azure.identity": logging.WARNING,  # Suppress authentication debug noise
+        "multipart.multipart": logging.WARNING,  # Suppress multipart parsing debug noise
     }
 
     for logger_name, level in suppressed_loggers.items():
