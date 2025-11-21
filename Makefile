@@ -9,3 +9,7 @@ help: ## Show this help message
 # Development Environment
 restore: ## Install all dependencies (backend)
 	@./scripts/restore.sh
+
+run-api: ## Run the FastAPI application (development mode with auto-reload)
+	@echo "[$$(date '+%Y-%m-%d %H:%M:%S')] Starting FastAPI in development mode..."
+	@poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
