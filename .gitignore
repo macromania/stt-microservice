@@ -302,6 +302,12 @@ $RECYCLE.BIN/
 # Environment variables
 .env*
 !.env.example
+!.env.k6.example
+
+# LibriSpeech dataset (downloaded via scripts/generate-audio-list.sh)
+samples/test-clean/
+samples/audio-files.json
+samples/*.tar.gz
 
 # Run details
 runs/
@@ -334,3 +340,9 @@ fhir_bundle_1.json
 # Ignore compliance report output
 compliance-report.json
 compliance-report.md
+
+# Example .env files
+!.env.example
+!.env.azure.example
+!.env.github.example
+!.env.k6.example
