@@ -1,5 +1,6 @@
 """Speech-to-Text V2 API router with async implementation."""
 
+import asyncio
 from functools import lru_cache
 import logging
 from pathlib import Path
@@ -124,19 +125,27 @@ async def create_transcription(
         bytes_written = 0
         chunk_size = 8192  # 8KB chunks
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+        # Use NamedTemporaryFile with mode='wb' for explicit binary write control
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, mode="wb")
+        try:
             while chunk := await audio_file.read(chunk_size):
                 bytes_written += len(chunk)
                 if bytes_written > MAX_FILE_SIZE:
                     # Cleanup partial file before raising
-                    temp_file.close()
+                    await asyncio.to_thread(temp_file.close)
                     Path(temp_file.name).unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"File too large. Maximum: {MAX_FILE_SIZE / 1024 / 1024:.0f}MB",
                     )
-                temp_file.write(chunk)
+                # Offload blocking write to thread pool to avoid blocking event loop
+                await asyncio.to_thread(temp_file.write, chunk)
+
+            # Ensure all data is flushed to disk before closing (non-blocking)
+            await asyncio.to_thread(temp_file.flush)
             temp_file_path = temp_file.name
+        finally:
+            await asyncio.to_thread(temp_file.close)
 
         # Get trace ID once for entire request
         trace_id = get_trace_id()
