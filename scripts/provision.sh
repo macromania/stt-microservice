@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 
 ###############################################################################
-# Azure Speech Service Provisioning Script
+# Azure AI Foundry Provisioning Script
 #
-# This script provisions Azure Speech Service resources and configures RBAC
-# for DefaultAzureCredential authentication.
+# This script provisions Azure AI Foundry resources (AIServices multi-service
+# resource with project management) and configures RBAC for DefaultAzureCredential
+# authentication.
 #
 # Features:
 # - Idempotent operations (safe to run multiple times)
 # - Interactive prompts for region and resource group
-# - Automatic RBAC role assignment
+# - Creates AI Foundry resource and project
+# - Automatic RBAC role assignment (dual roles for full access)
 # - Generates .env file with required configuration
 #
 # Usage:
@@ -28,9 +30,12 @@ source "${SCRIPT_DIR}/utils.sh"
 
 # Azure CAF naming conventions
 readonly RG_PREFIX="rg"         # Resource Group abbreviation
-readonly SPCH_PREFIX="spch"     # Speech Service abbreviation
-readonly SKU="S0"               # Standard tier for Speech Service
-readonly RBAC_ROLE="Cognitive Services Speech User"
+readonly FOUNDRY_PREFIX="foundry" # AI Foundry resource abbreviation
+readonly PROJECT_SUFFIX="project" # Project name suffix
+readonly SKU="S0"               # Standard tier for AIServices
+# Dual RBAC roles required for full access
+readonly RBAC_ROLE_GENERAL="Cognitive Services User"       # General inference API access
+readonly RBAC_ROLE_SPEECH="Cognitive Services Speech User" # Speech STT/TTS access
 readonly ENV_FILE=".env"
 readonly DEFAULT_ENV="dev"      # Default environment
 
@@ -120,19 +125,19 @@ create_resource_group() {
   fi
 }
 
-# Create or verify Speech Service
-create_speech_service() {
+# Create or verify AI Foundry Resource (AIServices with project management)
+create_foundry_resource() {
   local rg_name="$1"
   local location="$2"
   local resource_name="$3"
   
-  print_step 3 "Creating Azure Speech Service"
+  print_step 3 "Creating Azure AI Foundry Resource"
   
   if az cognitiveservices account show \
     --name "${resource_name}" \
     --resource-group "${rg_name}" &> /dev/null; then
     
-    print_info "Speech service '${resource_name}' already exists"
+    print_info "AI Foundry resource '${resource_name}' already exists"
     local existing_kind
     existing_kind=$(az cognitiveservices account show \
       --name "${resource_name}" \
@@ -141,27 +146,53 @@ create_speech_service() {
     print_info "Kind: ${existing_kind}"
     print_info "SKU: $(az cognitiveservices account show --name "${resource_name}" --resource-group "${rg_name}" --query "sku.name" -o tsv)"
   else
-    print_progress "Creating Speech service '${resource_name}'..."
+    print_progress "Creating AI Foundry resource '${resource_name}'..."
     az cognitiveservices account create \
       --name "${resource_name}" \
       --resource-group "${rg_name}" \
-      --kind "SpeechServices" \
+      --kind "AIServices" \
       --sku "${SKU}" \
       --location "${location}" \
+      --allow-project-management \
       --yes \
       --output none
     
-    print_success "Speech service created: ${resource_name}"
+    print_success "AI Foundry resource created: ${resource_name}"
   fi
 }
 
-# Assign RBAC role to current user
+# Create or verify AI Foundry Project
+create_foundry_project() {
+  local foundry_resource_name="$1"
+  local project_name="$2"
+  local location="$3"
+  
+  print_step 4 "Creating AI Foundry Project"
+  
+  # Check if project exists (list projects and grep for name)
+  if az cognitiveservices account project list \
+    --account-name "${foundry_resource_name}" 2>/dev/null | grep -q "${project_name}"; then
+    
+    print_info "AI Foundry project '${project_name}' already exists"
+  else
+    print_progress "Creating AI Foundry project '${project_name}'..."
+    az cognitiveservices account project create \
+      --name "${foundry_resource_name}" \
+      --project-name "${project_name}" \
+      --location "${location}" \
+      --output none
+    
+    print_success "AI Foundry project created: ${project_name}"
+  fi
+}
+
+# Assign RBAC roles to current user (dual roles for full access)
 assign_rbac_role() {
   local rg_name="$1"
   local resource_name="$2"
   local user_object_id="$3"
   
-  print_step 4 "Configuring RBAC Permissions"
+  print_step 5 "Configuring RBAC Permissions"
   
   local resource_id
   resource_id=$(az cognitiveservices account show \
@@ -172,35 +203,42 @@ assign_rbac_role() {
   print_info "Resource ID: ${resource_id}"
   print_info "User Object ID: ${user_object_id}"
   
-  # Check if role assignment already exists
-  if az role assignment list \
-    --assignee "${user_object_id}" \
-    --scope "${resource_id}" \
-    --role "${RBAC_ROLE}" \
-    --query "[0].id" -o tsv &> /dev/null | grep -q "."; then
-    
-    print_info "RBAC role '${RBAC_ROLE}' already assigned"
-  else
-    print_progress "Assigning '${RBAC_ROLE}' role to current user..."
-    az role assignment create \
-      --assignee-object-id "${user_object_id}" \
-      --assignee-principal-type "User" \
-      --role "${RBAC_ROLE}" \
+  # Assign both required roles
+  local roles=("${RBAC_ROLE_GENERAL}" "${RBAC_ROLE_SPEECH}")
+  
+  for role in "${roles[@]}"; do
+    # Check if role assignment already exists
+    if az role assignment list \
+      --assignee "${user_object_id}" \
       --scope "${resource_id}" \
-      --output none
-    
-    print_success "RBAC role assigned: ${RBAC_ROLE}"
-    print_warning "Note: RBAC permissions may take 1-2 minutes to propagate"
-  fi
+      --role "${role}" \
+      --query "[0].id" -o tsv &> /dev/null | grep -q "."; then
+      
+      print_info "RBAC role '${role}' already assigned"
+    else
+      print_progress "Assigning '${role}' role to current user..."
+      az role assignment create \
+        --assignee-object-id "${user_object_id}" \
+        --assignee-principal-type "User" \
+        --role "${role}" \
+        --scope "${resource_id}" \
+        --output none
+      
+      print_success "RBAC role assigned: ${role}"
+    fi
+  done
+  
+  print_warning "Note: RBAC permissions may take 1-2 minutes to propagate"
 }
 
 # Generate .env file
 generate_env_file() {
-  local resource_name="$1"
-  local region="$2"
-  local environment="$3"
+  local foundry_resource_name="$1"
+  local project_name="$2"
+  local region="$3"
+  local environment="$4"
   
-  print_step 5 "Generating Environment Configuration"
+  print_step 6 "Generating Environment Configuration"
   
   if [ -f "${ENV_FILE}" ]; then
     print_warning "Existing .env file found"
@@ -210,16 +248,21 @@ generate_env_file() {
   fi
   
   cat > "${ENV_FILE}" << EOF
-# Azure Speech Service Configuration
+# Azure AI Foundry Configuration
 # Generated by provision.sh on $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 # Azure CAF naming convention applied
+#
+# Note: Using AI Foundry (AIServices multi-service resource) for Speech access
+# The STT_AZURE_SPEECH_* variables point to the AI Foundry resource for backward compatibility
+# AI Foundry Project: ${project_name}
 
 # Application Settings
 APP_ENV=${environment}
 APP_LOG_LEVEL=INFO
 
-# Azure Speech Service (uses RBAC with DefaultAzureCredential)
-STT_AZURE_SPEECH_RESOURCE_NAME=${resource_name}
+# Azure AI Foundry / Speech Service (uses RBAC with DefaultAzureCredential)
+# Resource is AI Foundry AIServices kind, provides Speech + other AI services
+STT_AZURE_SPEECH_RESOURCE_NAME=${foundry_resource_name}
 STT_AZURE_SPEECH_REGION=${region}
 
 # STT Processing Limits
@@ -237,23 +280,26 @@ EOF
 # Display summary
 display_summary() {
   local rg_name="$1"
-  local resource_name="$2"
-  local region="$3"
-  local project="$4"
-  local environment="$5"
+  local foundry_resource_name="$2"
+  local project_name="$3"
+  local region="$4"
+  local project="$5"
+  local environment="$6"
   
   print_completion "Provisioning Complete!"
   
   echo "📋 Resource Summary (Azure CAF Naming):"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  Project:           ${project}"
-  echo "  Environment:       ${environment}"
-  echo "  Region:            ${region}"
-  echo "  Resource Group:    ${rg_name}"
-  echo "  Speech Service:    ${resource_name}"
-  echo "  SKU:               ${SKU}"
-  echo "  RBAC Role:         ${RBAC_ROLE}"
-  echo "  Config File:       ${ENV_FILE}"
+  echo "  Project:             ${project}"
+  echo "  Environment:         ${environment}"
+  echo "  Region:              ${region}"
+  echo "  Resource Group:      ${rg_name}"
+  echo "  AI Foundry Resource: ${foundry_resource_name}"
+  echo "  AI Foundry Project:  ${project_name}"
+  echo "  SKU:                 ${SKU}"
+  echo "  RBAC Roles:          ${RBAC_ROLE_GENERAL}"
+  echo "                       ${RBAC_ROLE_SPEECH}"
+  echo "  Config File:         ${ENV_FILE}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -261,12 +307,14 @@ display_summary() {
   echo "  1. Review the generated .env file"
   echo "  2. Wait 1-2 minutes for RBAC permissions to propagate"
   echo "  3. Run your application with DefaultAzureCredential authentication"
+  echo "  4. Access AI Foundry portal: https://ai.azure.com"
   echo ""
   
   print_info "Useful commands:"
-  echo "  • View resource: az cognitiveservices account show --name ${resource_name} --resource-group ${rg_name}"
+  echo "  • View AI Foundry resource: az cognitiveservices account show --name ${foundry_resource_name} --resource-group ${rg_name}"
+  echo "  • List projects: az cognitiveservices account project list --account-name ${foundry_resource_name}"
   echo "  • Test auth: az account get-access-token --resource https://cognitiveservices.azure.com"
-  echo "  • Check RBAC: az role assignment list --assignee \$(az ad signed-in-user show --query id -o tsv) --scope \$(az cognitiveservices account show --name ${resource_name} --resource-group ${rg_name} --query id -o tsv)"
+  echo "  • Check RBAC: az role assignment list --assignee \$(az ad signed-in-user show --query id -o tsv) --scope \$(az cognitiveservices account show --name ${foundry_resource_name} --resource-group ${rg_name} --query id -o tsv)"
   echo ""
 }
 
@@ -299,15 +347,17 @@ main() {
   # Generate Azure CAF compliant names
   # Format: {prefix}-{project}-{environment}-{region}
   RESOURCE_GROUP="${RG_PREFIX}-${PROJECT_NAME}-${ENVIRONMENT}-${REGION}"
-  SPEECH_RESOURCE_NAME="${SPCH_PREFIX}-${PROJECT_NAME}-${ENVIRONMENT}-${REGION}"
+  FOUNDRY_RESOURCE_NAME="${FOUNDRY_PREFIX}-${PROJECT_NAME}-${ENVIRONMENT}-${REGION}"
+  PROJECT_DISPLAY_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${PROJECT_SUFFIX}"
   
   echo ""
   print_info "Configuration summary:"
-  echo "  • Project:           ${PROJECT_NAME}"
-  echo "  • Environment:       ${ENVIRONMENT}"
-  echo "  • Region:            ${REGION}"
-  echo "  • Resource Group:    ${RESOURCE_GROUP}"
-  echo "  • Speech Service:    ${SPEECH_RESOURCE_NAME}"
+  echo "  • Project:             ${PROJECT_NAME}"
+  echo "  • Environment:         ${ENVIRONMENT}"
+  echo "  • Region:              ${REGION}"
+  echo "  • Resource Group:      ${RESOURCE_GROUP}"
+  echo "  • AI Foundry Resource: ${FOUNDRY_RESOURCE_NAME}"
+  echo "  • AI Foundry Project:  ${PROJECT_DISPLAY_NAME}"
   echo ""
   
   read -rp "Proceed with provisioning? (y/n): " confirm
@@ -330,20 +380,24 @@ main() {
   fi
   echo ""
   
-  # Step 3: Create Speech Service
-  create_speech_service "${RESOURCE_GROUP}" "${ACTUAL_REGION}" "${SPEECH_RESOURCE_NAME}"
+  # Step 3: Create AI Foundry Resource
+  create_foundry_resource "${RESOURCE_GROUP}" "${ACTUAL_REGION}" "${FOUNDRY_RESOURCE_NAME}"
   echo ""
   
-  # Step 4: Assign RBAC
-  assign_rbac_role "${RESOURCE_GROUP}" "${SPEECH_RESOURCE_NAME}" "${USER_OBJECT_ID}"
+  # Step 4: Create AI Foundry Project
+  create_foundry_project "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}"
   echo ""
   
-  # Step 5: Generate .env
-  generate_env_file "${SPEECH_RESOURCE_NAME}" "${ACTUAL_REGION}" "${ENVIRONMENT}"
+  # Step 5: Assign RBAC (dual roles)
+  assign_rbac_role "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${USER_OBJECT_ID}"
+  echo ""
+  
+  # Step 6: Generate .env
+  generate_env_file "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${ENVIRONMENT}"
   echo ""
   
   # Display summary
-  display_summary "${RESOURCE_GROUP}" "${SPEECH_RESOURCE_NAME}" "${ACTUAL_REGION}" "${PROJECT_NAME}" "${ENVIRONMENT}"
+  display_summary "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${PROJECT_NAME}" "${ENVIRONMENT}"
 }
 
 # Run main function

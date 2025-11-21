@@ -5,10 +5,14 @@ import sys
 
 from uvicorn.logging import DefaultFormatter
 
+logger = logging.getLogger(__name__)
+
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Setup logging configuration."""
     # Setup root logger
+    logger.info("Configuring logging with level: %s", log_level)
+
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level.upper()))
 

@@ -163,9 +163,13 @@ class TranscriptionService:
                 # Get token from cached credential (reuses credential from __init__)
                 token = self.credential.get_token("https://cognitiveservices.azure.com/.default").token
 
-                endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/"
-                speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
-                speech_config.authorization_token = token
+                if self.resource_name:
+                    endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/"
+                    speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
+                    speech_config.authorization_token = token
+                else:
+                    speech_config = speechsdk.SpeechConfig(region=self.speech_region)
+                    speech_config.authorization_token = token
 
                 audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
 
@@ -206,17 +210,9 @@ class TranscriptionService:
                 segments = []
                 detected_language = azure_language or "en-US"
                 done = False
-                error_message = None
-
-                def on_transcribing(evt):
-                    """Log intermediate results."""
-                    short_trace_id = trace_id[:8]
-                    logger.debug(f"[{short_trace_id}] Transcribing: {evt.result.text}", extra={"trace_id": trace_id})
 
                 def on_transcribed(evt):
                     nonlocal detected_language
-                    short_trace_id = trace_id[:8]
-                    logger.debug(f"[{short_trace_id}] Transcribed event - Reason: {evt.result.reason}, Text: '{evt.result.text}'", extra={"trace_id": trace_id})
                     if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech and evt.result.text:
                         # Extract language
                         if evt.result.properties:
@@ -236,32 +232,14 @@ class TranscriptionService:
                         )
                         segments.append(segment)
 
-                def on_canceled(evt):
-                    nonlocal done, error_message
-                    short_trace_id = trace_id[:8]
-                    if evt.reason == speechsdk.CancellationReason.Error:
-                        error_message = f"Error: {evt.error_details}"
-                        logger.error(f"[{short_trace_id}] Transcription error: {evt.error_details}", extra={"trace_id": trace_id})
-                    else:
-                        logger.info(f"[{short_trace_id}] Transcription cancelled: {evt.reason}", extra={"trace_id": trace_id})
-                    done = True
-
-                def on_session_started(evt):
-                    short_trace_id = trace_id[:8]
-                    logger.info(f"[{short_trace_id}] Session started - SessionId: {evt.session_id}", extra={"trace_id": trace_id})
-
                 def on_stopped(evt):
                     nonlocal done
-                    short_trace_id = trace_id[:8]
-                    logger.info(f"[{short_trace_id}] Session stopped - SessionId: {evt.session_id if hasattr(evt, 'session_id') else 'N/A'}", extra={"trace_id": trace_id})
                     done = True
 
                 # Connect callbacks
-                transcriber.session_started.connect(on_session_started)
-                transcriber.transcribing.connect(on_transcribing)
                 transcriber.transcribed.connect(on_transcribed)
                 transcriber.session_stopped.connect(on_stopped)
-                transcriber.canceled.connect(on_canceled)
+                transcriber.canceled.connect(on_stopped)
 
                 # Start transcription
                 short_trace_id = trace_id[:8]
@@ -278,11 +256,6 @@ class TranscriptionService:
                 short_trace_id = trace_id[:8]
                 logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
                 transcriber.stop_transcribing_async()
-
-                # Check for errors
-                if error_message:
-                    logger.error(f"[{short_trace_id}] Transcription failed: {error_message}", extra={"trace_id": trace_id})
-                    raise RuntimeError(f"Transcription failed: {error_message}")
 
                 # Build full text
                 full_text = "\n".join([f"[{seg.speaker_id}] {seg.text}" if seg.speaker_id else seg.text for seg in segments])
