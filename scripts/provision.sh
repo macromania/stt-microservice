@@ -163,21 +163,24 @@ create_foundry_resource() {
 
 # Create or verify AI Foundry Project
 create_foundry_project() {
-  local foundry_resource_name="$1"
-  local project_name="$2"
-  local location="$3"
+  local rg_name="$1"
+  local foundry_resource_name="$2"
+  local project_name="$3"
+  local location="$4"
   
   print_step 4 "Creating AI Foundry Project"
   
   # Check if project exists (list projects and grep for name)
   if az cognitiveservices account project list \
-    --account-name "${foundry_resource_name}" 2>/dev/null | grep -q "${project_name}"; then
+    --account-name "${foundry_resource_name}" \
+    --resource-group "${rg_name}" 2>/dev/null | grep -q "${project_name}"; then
     
     print_info "AI Foundry project '${project_name}' already exists"
   else
     print_progress "Creating AI Foundry project '${project_name}'..."
     az cognitiveservices account project create \
       --name "${foundry_resource_name}" \
+      --resource-group "${rg_name}" \
       --project-name "${project_name}" \
       --location "${location}" \
       --output none
@@ -385,7 +388,7 @@ main() {
   echo ""
   
   # Step 4: Create AI Foundry Project
-  create_foundry_project "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}"
+  create_foundry_project "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}"
   echo ""
   
   # Step 5: Assign RBAC (dual roles)
