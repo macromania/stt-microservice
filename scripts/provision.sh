@@ -145,6 +145,25 @@ create_foundry_resource() {
       --query "kind" -o tsv)
     print_info "Kind: ${existing_kind}"
     print_info "SKU: $(az cognitiveservices account show --name "${resource_name}" --resource-group "${rg_name}" --query "sku.name" -o tsv)"
+    
+    # Check if custom domain is set, if not update it
+    local existing_domain
+    existing_domain=$(az cognitiveservices account show \
+      --name "${resource_name}" \
+      --resource-group "${rg_name}" \
+      --query "properties.customSubDomainName" -o tsv 2>/dev/null)
+    
+    if [ -z "${existing_domain}" ] || [ "${existing_domain}" == "null" ]; then
+      print_warning "Custom subdomain not set. Updating resource to enable project management..."
+      az cognitiveservices account update \
+        --name "${resource_name}" \
+        --resource-group "${rg_name}" \
+        --custom-domain "${resource_name}" \
+        --output none
+      print_success "Custom subdomain configured: ${resource_name}"
+    else
+      print_info "Custom subdomain: ${existing_domain}"
+    fi
   else
     print_progress "Creating AI Foundry resource '${resource_name}'..."
     az cognitiveservices account create \
@@ -153,6 +172,7 @@ create_foundry_resource() {
       --kind "AIServices" \
       --sku "${SKU}" \
       --location "${location}" \
+      --custom-domain "${resource_name}" \
       --allow-project-management \
       --yes \
       --output none
