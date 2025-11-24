@@ -283,9 +283,20 @@ export const options = {
   // Disable default thresholds for cleaner output
   summaryTrendStats: ['min', 'avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
   
-  // Disable HTTP connection reuse to test load balancing across pods
-  // Each request will create a new connection, allowing proper distribution
-  noConnectionReuse: true,
+  // Load balancing configuration for multi-pod testing
+  // These options ensure requests are distributed across all pods
+  noConnectionReuse: true,        // Disable HTTP keep-alive connections
+  noVUConnectionReuse: true,      // VUs don't reuse TCP connections between iterations
+  
+  // DNS configuration for better load distribution
+  // - ttl: 0 means DNS lookup on every request (no caching)
+  // - select: 'random' picks a random IP from resolved IPs
+  // - This helps when service DNS returns multiple pod IPs
+  dns: {
+    ttl: '0',           // No DNS caching - resolve on every connection
+    select: 'random',   // Randomly select from resolved IPs
+    policy: 'any',      // Use both IPv4 and IPv6
+  },
 };
 
 // =============================================================================
