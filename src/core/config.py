@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     stt_max_file_size_mb: int = Field(default=100, description="Maximum audio file size for STT in MB", alias="STT_MAX_FILE_SIZE_MB")
     stt_max_duration_minutes: int = Field(default=120, description="Maximum audio duration for STT in minutes", alias="STT_MAX_DURATION_MINUTES")
 
+    # Speech SDK memory tracking (see: https://learn.microsoft.com/azure/ai-services/speech-service/how-to-track-speech-sdk-memory-usage)
+    speech_sdk_object_warn_threshold: int = Field(
+        default=100,
+        description="Speech SDK object count warning threshold. Logs warning with object dump when exceeded.",
+        alias="STT_SPEECH_SDK_OBJECT_WARN_THRESHOLD"
+    )
+    speech_sdk_object_error_threshold: int = Field(
+        default=200,
+        description="Speech SDK object count error threshold. Prevents new recognizer creation when exceeded.",
+        alias="STT_SPEECH_SDK_OBJECT_ERROR_THRESHOLD"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
