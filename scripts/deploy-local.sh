@@ -75,37 +75,23 @@ setup_minikube() {
 install_monitoring() {
   print_step 2 "Installing Prometheus and Grafana"
   
-  # Add Bitnami Helm repository
-  print_info "Adding Bitnami Helm repository..."
-  helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+  # Add Prometheus Community Helm repository (better ARM64 support)
+  print_info "Adding Prometheus Community Helm repository..."
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
   helm repo update
   
-  # Install Prometheus
-  if helm list -n "${NAMESPACE}" | grep -q "prometheus"; then
-    print_info "Prometheus is already installed"
+  # Install kube-prometheus-stack (includes Prometheus, Grafana, Alertmanager)
+  if helm list -n "${NAMESPACE}" | grep -q "kube-prometheus-stack"; then
+    print_info "Prometheus stack is already installed"
   else
-    print_info "Installing Prometheus..."
-    helm install prometheus bitnami/kube-prometheus \
-      --namespace "${NAMESPACE}" \
-      --set prometheus.service.type=ClusterIP \
-      --wait --timeout=5m
-    print_success "Prometheus installed"
+    print_info "Installing kube-prometheus-stack (Prometheus + Grafana)..."
+    helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+      -n "${NAMESPACE}" \
+      --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+    print_success "Prometheus stack installation started"
   fi
   
-  # Install Grafana
-  if helm list -n "${NAMESPACE}" | grep -q "grafana"; then
-    print_info "Grafana is already installed"
-  else
-    print_info "Installing Grafana..."
-    helm install grafana bitnami/grafana \
-      --namespace "${NAMESPACE}" \
-      --set service.type=ClusterIP \
-      --set admin.user=admin \
-      --set admin.password=admin \
-      --wait --timeout=5m
-    print_success "Grafana installed"
-  fi
-  
+  print_info "Monitoring stack is initializing in the background..."
   print_success "Monitoring stack installation complete"
 }
 
@@ -161,23 +147,10 @@ deploy_app() {
 configure_grafana() {
   print_step 6 "Configuring Grafana"
   
-  print_info "Waiting for Grafana to be ready..."
-  kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${NAMESPACE}" --timeout=5m
+  print_info "Waiting for Grafana to be ready (this may take a few minutes)..."
+  kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${NAMESPACE}" --timeout=10m
   
-  print_info "Configuring Prometheus data source in Grafana..."
-  
-  # Get Grafana pod name
-  GRAFANA_POD=$(kubectl get pod -l app.kubernetes.io/name=grafana -n "${NAMESPACE}" -o jsonpath='{.items[0].metadata.name}')
-  
-  # Create Prometheus data source
-  kubectl exec -n "${NAMESPACE}" "${GRAFANA_POD}" -- \
-    grafana-cli --homepath /opt/bitnami/grafana admin data-source add \
-    --name "Prometheus" \
-    --type "prometheus" \
-    --url "http://prometheus-kube-prometheus-prometheus:9090" \
-    --access "proxy" \
-    --isDefault true 2>/dev/null || print_info "Prometheus data source may already exist"
-  
+  print_info "Grafana is ready. Prometheus data source is pre-configured in kube-prometheus-stack."
   print_success "Grafana configured successfully"
 }
 
@@ -187,26 +160,28 @@ display_info() {
   
   echo "Access your services using these commands:"
   echo ""
-  echo "  ${CYAN}Grafana Dashboard:${NC}"
-  echo "    kubectl port-forward -n ${NAMESPACE} svc/grafana 3000:3000"
-  echo "    Open: http://localhost:3000 (admin/admin)"
+  echo -e "  ${CYAN}Grafana Dashboard:${NC}"
+  echo "    kubectl port-forward -n ${NAMESPACE} svc/kube-prometheus-stack-grafana 3000:80"
+  echo "    Open: http://localhost:3000"
+  echo "    Username: admin"
+  echo "    Password: prom-operator"
   echo ""
-  echo "  ${CYAN}Prometheus:${NC}"
-  echo "    kubectl port-forward -n ${NAMESPACE} svc/prometheus-kube-prometheus-prometheus 9090:9090"
+  echo -e "  ${CYAN}Prometheus:${NC}"
+  echo "    kubectl port-forward -n ${NAMESPACE} svc/kube-prometheus-stack-prometheus 9090:9090"
   echo "    Open: http://localhost:9090"
   echo ""
-  echo "  ${CYAN}STT API:${NC}"
+  echo -e "  ${CYAN}STT API:${NC}"
   echo "    kubectl port-forward -n ${NAMESPACE} svc/stt-service 8000:8000"
   echo "    Open: http://localhost:8000/docs"
   echo ""
-  echo "  ${CYAN}View Metrics:${NC}"
+  echo -e "  ${CYAN}View Metrics:${NC}"
   echo "    kubectl port-forward -n ${NAMESPACE} svc/stt-service 8000:8000"
   echo "    curl http://localhost:8000/metrics"
   echo ""
-  echo "  ${CYAN}View Logs:${NC}"
+  echo -e "  ${CYAN}View Logs:${NC}"
   echo "    kubectl logs -f -l app=${APP_NAME} -n ${NAMESPACE}"
   echo ""
-  echo "  ${CYAN}Check Status:${NC}"
+  echo -e "  ${CYAN}Check Status:${NC}"
   echo "    kubectl get all -l app=${APP_NAME} -n ${NAMESPACE}"
   echo ""
   
