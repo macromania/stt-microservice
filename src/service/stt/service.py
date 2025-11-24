@@ -6,6 +6,7 @@ Always transcribes with diarization and translates to English.
 """
 
 import asyncio
+from asyncio import Queue
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import gc
@@ -169,6 +170,7 @@ class TranscriptionService:
             auto_detect_config = None
             credential = None
             connection = None
+            result_queue = None
 
             try:
                 # Get token: use environment variable if available (K8s), otherwise create fresh credential
@@ -232,13 +234,13 @@ class TranscriptionService:
 
                 connection = Connection.from_recognizer(transcriber)
 
-                # Callback state
-                segments = []
+                # Callback state with queue-based pattern
+                result_queue = Queue()
                 detected_language = azure_language or "en-US"
                 done = False
 
                 def on_transcribed(evt):
-                    nonlocal detected_language, segments
+                    nonlocal detected_language, result_queue
                     if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech and evt.result.text:
                         # Extract language
                         if evt.result.properties:
@@ -246,22 +248,17 @@ class TranscriptionService:
                             if lang:
                                 detected_language = lang
 
-                        # Extract all data from evt.result immediately (avoid keeping evt reference)
-                        text = evt.result.text
-                        speaker_id = evt.result.speaker_id if hasattr(evt.result, "speaker_id") else None
-                        offset = evt.result.offset if hasattr(evt.result, "offset") else 0
-                        duration = evt.result.duration if hasattr(evt.result, "duration") else 0
-
-                        # Create segment with extracted data (no evt.result references kept)
-                        segment = TranscriptionSegment(
-                            text=text,
-                            start_time=offset / 10000000,
-                            end_time=(offset + duration) / 10000000,
-                            confidence=0.95,
-                            speaker_id=f"spk_{speaker_id}" if speaker_id else None,
-                            language=detected_language,
+                        # Extract all data from evt.result immediately and put plain dict in queue
+                        # No SDK object references, no complex object creation in callback
+                        result_queue.put_nowait(
+                            {
+                                "text": evt.result.text,
+                                "speaker_id": evt.result.speaker_id if hasattr(evt.result, "speaker_id") else None,
+                                "offset": evt.result.offset if hasattr(evt.result, "offset") else 0,
+                                "duration": evt.result.duration if hasattr(evt.result, "duration") else 0,
+                                "language": detected_language,
+                            }
                         )
-                        segments.append(segment)
 
                 def on_stopped(evt):
                     nonlocal done
@@ -292,6 +289,20 @@ class TranscriptionService:
                 logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
                 transcriber.stop_transcribing_async()
 
+                # Drain queue and build segments list (no SDK references in segments)
+                segments = []
+                while not result_queue.empty():
+                    result_dict = result_queue.get_nowait()
+                    segment = TranscriptionSegment(
+                        text=result_dict["text"],
+                        start_time=result_dict["offset"] / 10000000,
+                        end_time=(result_dict["offset"] + result_dict["duration"]) / 10000000,
+                        confidence=0.95,
+                        speaker_id=f"spk_{result_dict['speaker_id']}" if result_dict["speaker_id"] else None,
+                        language=result_dict["language"],
+                    )
+                    segments.append(segment)
+
                 # Build full text
                 full_text = "\n".join([f"[{seg.speaker_id}] {seg.text}" if seg.speaker_id else seg.text for seg in segments])
 
@@ -299,8 +310,8 @@ class TranscriptionService:
                 unique_speakers = {seg.speaker_id for seg in segments if seg.speaker_id}
                 speaker_count = len(unique_speakers) if unique_speakers else None
 
-                # Copy segments to new list to break reference to callback closure
-                result_segments = list(segments)
+                # Segments list is already clean (no callback closure references)
+                result_segments = segments
 
                 return {
                     "segments": result_segments,
@@ -354,6 +365,7 @@ class TranscriptionService:
 
                 # Delete local variables that might hold references
                 try:
+                    del result_queue
                     del segments
                     del done
                     del detected_language
