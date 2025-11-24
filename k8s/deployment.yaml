@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-service
+  labels:
+    app: stt-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stt-service
+  template:
+    metadata:
+      labels:
+        app: stt-service
+    spec:
+      containers:
+      - name: stt-service
+        image: stt-service:latest
+        imagePullPolicy: Never  # Use local image built in Minikube
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        - name: APP_VERSION
+          value: "0.1.0"
+        envFrom:
+        - configMapRef:
+            name: stt-config
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

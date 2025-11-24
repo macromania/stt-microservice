@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: stt-service-monitor
+  labels:
+    app: stt-service
+spec:
+  selector:
+    matchLabels:
+      app: stt-service
+  endpoints:
+  - port: http-traffic
+    path: "/metrics"
+    interval: 15s
+    scrapeTimeout: 10s
