@@ -24,12 +24,24 @@ run-api: ## Run the FastAPI application (development mode with auto-reload)
 load-test: ## Run load test against local Kubernetes cluster
 	@echo "Starting load test..."
 	@echo ""
-	@echo "⚠️  PREREQUISITE: Ensure port-forward is running in another terminal:"
-	@echo "   make local-api"
+	@echo "Checking if service is accessible at localhost:8080..."
+	@if curl -s -f -o /dev/null --max-time 2 http://localhost:8080/ 2>/dev/null; then \
+		echo "✅ Service is accessible at localhost:8080"; \
+	else \
+		echo "❌ ERROR: Service not accessible at localhost:8080"; \
+		echo ""; \
+		echo "Please start port-forward in another terminal:"; \
+		echo "   kubectl port-forward -n default svc/stt-service 8080:8000"; \
+		echo ""; \
+		echo "Or use the make command:"; \
+		echo "   make local-api"; \
+		echo ""; \
+		exit 1; \
+	fi
 	@echo ""
-	@echo "Starting in 3 seconds..."
-	@sleep 3
-	@./scripts/run-load-test.sh load-test.js
+	@echo "Starting load test in 2 seconds..."
+	@sleep 2
+	@./scripts/run-load-test.sh -e BASE_URL=http://localhost:8080 load-test.js
 
 # Local Kubernetes Cluster
 setup-local-cluster: ## Setup Minikube cluster with Prometheus and Grafana
