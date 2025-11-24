@@ -5,7 +5,7 @@ metadata:
   labels:
     app: stt-service
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: stt-service
@@ -33,11 +33,11 @@ spec:
             optional: true
         resources:
           requests:
-            cpu: "750m"      # 0.75 CPU core
-            memory: "1536Mi" # 1.5 GB (proportional to 2Gi limit)
+            cpu: "1500m"     # 1.5 CPU cores
+            memory: "3072Mi" # 3 GB (proportional to 4Gi limit)
           limits:
-            cpu: "1000m"     # 1 CPU core
-            memory: "2Gi"    # 2 Gigabytes of RAM
+            cpu: "2000m"     # 2 CPU cores
+            memory: "4Gi"    # 4 Gigabytes of RAM
         livenessProbe:
           httpGet:
             path: /
