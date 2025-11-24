@@ -85,10 +85,19 @@ fi
 # Change to project root before running k6 (ensures relative paths work)
 cd "${PROJECT_ROOT}"
 
+# Check if web dashboard should be enabled
+DASHBOARD_FLAG=""
+if [ "${K6_WEB_DASHBOARD}" = "true" ] || [ "${K6_WEB_DASHBOARD}" = "1" ]; then
+    DASHBOARD_FLAG="--out web-dashboard"
+    echo "✓ Web dashboard enabled"
+    echo "  Dashboard will be available at: http://127.0.0.1:5665"
+    echo ""
+fi
+
 # Run k6 with environment variables and all arguments passed through
 echo "Running k6 load test from: ${PROJECT_ROOT}"
-echo "Command: k6 run $ENV_VARS $@"
+echo "Command: k6 run $ENV_VARS $DASHBOARD_FLAG $@"
 echo ""
 
 # shellcheck disable=SC2086
-k6 run $ENV_VARS "$@"
+k6 run $ENV_VARS $DASHBOARD_FLAG "$@"

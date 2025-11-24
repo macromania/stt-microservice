@@ -101,6 +101,7 @@ Key configuration options:
 | `AUDIO_DIR` | `samples/test-clean` | LibriSpeech directory |
 | `AUDIO_FILES_LIST` | `samples/audio-files.json` | File list (auto-generated) |
 | `REQUEST_TIMEOUT_MS` | `180000` | Request timeout (3 min) |
+| `K6_WEB_DASHBOARD` | `false` | Enable web dashboard for real-time visualization |
 
 ### Test Mode Presets
 
@@ -153,6 +154,58 @@ Extended duration for stability:
 ```bash
 ./scripts/run-load-test.sh -e TEST_MODE=soak load-test.js
 ```
+
+## Web Dashboard
+
+k6 provides a real-time web dashboard for monitoring test execution with interactive charts and metrics.
+
+### Enable Web Dashboard
+
+Set `K6_WEB_DASHBOARD=true` in your `.env.k6` file or pass it as an environment variable:
+
+```bash
+# Option 1: Set in .env.k6
+K6_WEB_DASHBOARD=true
+
+# Option 2: Pass as environment variable
+./scripts/run-load-test.sh -e K6_WEB_DASHBOARD=true load-test.js
+```
+
+### Access Dashboard
+
+Once enabled, the dashboard is available at:
+
+```
+http://127.0.0.1:5665
+```
+
+Open this URL in your browser while the test is running to view:
+
+- Real-time metrics and charts
+- Active VUs and request rates
+- Response times (p50, p90, p95, p99)
+- Error rates and trends
+- Custom metrics visualization
+
+### Export Dashboard Report
+
+You can export the dashboard as an HTML report after test completion by setting:
+
+```bash
+K6_WEB_DASHBOARD_EXPORT=html-report.html
+```
+
+This creates a standalone HTML file with all test results that can be shared or archived.
+
+### Custom Dashboard Host
+
+To expose the dashboard on a different host/port (e.g., for remote access):
+
+```bash
+K6_WEB_DASHBOARD_HOST=0.0.0.0:5665
+```
+
+**Note:** The web dashboard is only available during test execution. For permanent results, use the export feature or k6's other output options (Cloud, InfluxDB, etc.).
 
 ## Custom Configuration
 
