@@ -200,10 +200,7 @@ class TranscriptionService:
                 speech_config.set_property_by_name("SPEECH-ObjectCountErrorThreshold", str(self.sdk_error_threshold))
 
                 short_trace_id = trace_id[:8]
-                logger.info(
-                    f"[{short_trace_id}] Speech SDK memory tracking enabled: warn={self.sdk_warn_threshold}, error={self.sdk_error_threshold}",
-                    extra={"trace_id": trace_id}
-                )
+                logger.info(f"[{short_trace_id}] Speech SDK memory tracking enabled: warn={self.sdk_warn_threshold}, error={self.sdk_error_threshold}", extra={"trace_id": trace_id})
 
                 audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
 
