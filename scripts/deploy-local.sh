@@ -158,26 +158,18 @@ configure_grafana() {
 import_dashboard() {
   print_step 7 "Importing Grafana dashboard"
   
-  print_info "Retrieving Grafana pod and credentials..."
-  GRAFANA_POD=$(kubectl get pod -n "${NAMESPACE}" -l app.kubernetes.io/name=grafana -o jsonpath="{.items[0].metadata.name}")
-  GRAFANA_PASSWORD=$(kubectl get secret -n "${NAMESPACE}" kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 --decode)
-  
-  if [ -z "$GRAFANA_POD" ]; then
-    print_warning "Grafana pod not found. Dashboard import skipped."
+  print_info "Waiting for Grafana to be ready..."
+  if ! kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n "${NAMESPACE}" --timeout=2m 2>/dev/null; then
+    print_warning "Grafana not ready yet. You can import the dashboard later with: make import-grafana-dashboard"
     return
   fi
   
-  print_info "Copying dashboard JSON to Grafana pod..."
-  kubectl cp "${PROJECT_ROOT}/k8s/grafana-dashboard.json" "${NAMESPACE}/${GRAFANA_POD}:/tmp/dashboard.json"
-  
-  print_info "Importing dashboard via Grafana API..."
-  kubectl exec -n "${NAMESPACE}" "${GRAFANA_POD}" -- curl -X POST \
-    -H "Content-Type: application/json" \
-    -u "admin:${GRAFANA_PASSWORD}" \
-    -d @/tmp/dashboard.json \
-    http://localhost:3000/api/dashboards/db 2>/dev/null || print_warning "Dashboard import may require manual verification in Grafana UI"
-  
-  print_success "Dashboard import completed"
+  print_info "Running import script..."
+  if NAMESPACE="${NAMESPACE}" "${SCRIPT_DIR}/import-grafana-dashboard.sh"; then
+    print_success "Dashboard imported successfully"
+  else
+    print_warning "Dashboard import failed. You can retry with: make import-grafana-dashboard"
+  fi
 }
 
 # Function: Display access information

@@ -67,14 +67,7 @@ local-api: ## Port-forward STT API to localhost:8000 (Ctrl+C to stop)
 	@kubectl port-forward -n default svc/stt-service 8000:8000
 
 import-grafana-dashboard: ## Import STT dashboard into Grafana
-	@echo "Importing STT dashboard to Grafana..."
-	@GRAFANA_POD=$$(kubectl get pod -n default -l app.kubernetes.io/name=grafana -o jsonpath="{.items[0].metadata.name}"); \
-	kubectl cp k8s/grafana-dashboard.json default/$$GRAFANA_POD:/tmp/dashboard.json; \
-	GRAFANA_PASSWORD=$$(kubectl get secret -n default kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -D); \
-	kubectl exec -n default $$GRAFANA_POD -- curl -X POST -H "Content-Type: application/json" -u admin:$$GRAFANA_PASSWORD \
-		-d '{"dashboard": '"$$(cat k8s/grafana-dashboard.json)"', "overwrite": true, "message": "Updated via kubectl"}' \
-		http://localhost:3000/api/dashboards/db || echo "Note: Dashboard import may require manual steps. See Grafana UI."
-	@echo "Dashboard import attempted. Check Grafana at http://localhost:3000/dashboards"
+	@./scripts/import-grafana-dashboard.sh
 
 cleanup-local-cluster: ## Cleanup Minikube cluster
 	@minikube delete -p stt-microservice
