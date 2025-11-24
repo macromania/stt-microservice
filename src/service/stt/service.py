@@ -6,6 +6,7 @@ Always transcribes with diarization and translates to English.
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import gc
 import logging
@@ -166,6 +167,7 @@ class TranscriptionService:
             audio_config = None
             transcriber = None
             auto_detect_config = None
+            credential = None
 
             try:
                 # Get token: use environment variable if available (K8s), otherwise create fresh credential
@@ -173,7 +175,7 @@ class TranscriptionService:
 
                 token = os.getenv("AZURE_ACCESS_TOKEN")
                 if not token:
-                    # Create credential per request to avoid memory leaks from cached credential state
+                    # Create credential per request - will be explicitly closed in finally
                     credential = DefaultAzureCredential()
                     token = credential.get_token("https://cognitiveservices.azure.com/.default").token
 
@@ -234,12 +236,17 @@ class TranscriptionService:
                             if lang:
                                 detected_language = lang
 
-                        # Create segment
+                        # Extract all data from evt.result immediately (avoid keeping evt reference)
+                        text = evt.result.text
                         speaker_id = evt.result.speaker_id if hasattr(evt.result, "speaker_id") else None
+                        offset = evt.result.offset if hasattr(evt.result, "offset") else 0
+                        duration = evt.result.duration if hasattr(evt.result, "duration") else 0
+
+                        # Create segment with extracted data (no evt.result references kept)
                         segment = TranscriptionSegment(
-                            text=evt.result.text,
-                            start_time=evt.result.offset / 10000000 if hasattr(evt.result, "offset") else 0,
-                            end_time=(evt.result.offset + evt.result.duration) / 10000000 if hasattr(evt.result, "offset") and hasattr(evt.result, "duration") else 0,
+                            text=text,
+                            start_time=offset / 10000000,
+                            end_time=(offset + duration) / 10000000,
                             confidence=0.95,
                             speaker_id=f"spk_{speaker_id}" if speaker_id else None,
                             language=detected_language,
@@ -282,8 +289,11 @@ class TranscriptionService:
                 unique_speakers = {seg.speaker_id for seg in segments if seg.speaker_id}
                 speaker_count = len(unique_speakers) if unique_speakers else None
 
+                # Copy segments to new list to break reference to callback closure
+                result_segments = list(segments)
+
                 return {
-                    "segments": segments,
+                    "segments": result_segments,
                     "full_text": full_text,
                     "detected_language": detected_language,
                     "speaker_count": speaker_count,
@@ -308,16 +318,44 @@ class TranscriptionService:
                     except Exception as e:
                         logger.warning(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
 
+                # Explicitly delete callback functions to break closures
+                try:
+                    del on_transcribed
+                    del on_stopped
+                except (NameError, UnboundLocalError):
+                    pass  # Callbacks not created (early error)
+
+                # Close credential to release HTTP client and connection pool
+                if credential is not None:
+                    try:
+                        credential.close()
+                        logger.debug(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
+                    except Exception as e:
+                        logger.warning(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
+
                 # Explicitly delete SDK objects to release resources immediately
                 # This helps Python's garbage collector reclaim memory faster
                 del transcriber
                 del audio_config
                 del speech_config
                 del auto_detect_config
+                del credential
 
                 # Force immediate GC to release native resources
                 gc.collect()
 
-        # Run synchronous Speech SDK work in a separate thread
-        # asyncio.to_thread runs in thread pool and handles all the complexity
-        return await asyncio.to_thread(_sync_transcribe)
+        # Use a single-use thread pool executor to avoid memory retention
+        # The default thread pool reuses threads which can keep SDK objects alive
+        # A fresh executor with max_workers=1 ensures complete cleanup after request
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"stt-{trace_id[:8]}")
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(executor, _sync_transcribe)
+        finally:
+            # Shutdown executor immediately to release thread resources
+            executor.shutdown(wait=True)
+            del executor
+            # Force GC to clean up thread-local storage
+            gc.collect()
+
+        return result

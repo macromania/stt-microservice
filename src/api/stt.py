@@ -3,9 +3,8 @@
 import asyncio
 import gc
 import logging
-import tempfile
-from functools import lru_cache
 from pathlib import Path
+import tempfile
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
@@ -33,35 +32,19 @@ ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".webm", 
 MAX_FILE_SIZE = settings.stt_max_file_size_mb * 1024 * 1024
 
 # Custom STT Prometheus Metrics
-stt_transcriptions_total = Counter(
-    'stt_transcriptions_total',
-    'Total number of transcription requests',
-    ['status', 'language']
-)
+stt_transcriptions_total = Counter("stt_transcriptions_total", "Total number of transcription requests", ["status", "language"])
 
 stt_audio_duration_seconds = Histogram(
-    'stt_audio_duration_seconds',
-    'Duration of audio files processed in seconds',
-    buckets=[5, 10, 30, 60, 120, 300, 600, 1800]  # 5s to 30min
+    "stt_audio_duration_seconds",
+    "Duration of audio files processed in seconds",
+    buckets=[5, 10, 30, 60, 120, 300, 600, 1800],  # 5s to 30min
 )
 
-stt_transcription_confidence = Gauge(
-    'stt_transcription_confidence',
-    'Average confidence score of transcriptions',
-    ['language']
-)
+stt_transcription_confidence = Gauge("stt_transcription_confidence", "Average confidence score of transcriptions", ["language"])
 
-stt_transcription_time = Histogram(
-    'stt_transcription_time_seconds',
-    'Time spent on transcription in seconds',
-    buckets=[1, 2, 5, 10, 20, 30, 60]
-)
+stt_transcription_time = Histogram("stt_transcription_time_seconds", "Time spent on transcription in seconds", buckets=[1, 2, 5, 10, 20, 30, 60])
 
-stt_translation_time = Histogram(
-    'stt_translation_time_seconds',
-    'Time spent on translation in seconds',
-    buckets=[1, 2, 5, 10, 20, 30, 60]
-)
+stt_translation_time = Histogram("stt_translation_time_seconds", "Time spent on translation in seconds", buckets=[1, 2, 5, 10, 20, 30, 60])
 
 
 def get_speech_service() -> TranscriptionService:
@@ -146,7 +129,7 @@ async def create_transcription(
         500: Processing failed
     """
     temp_file_path = None
-    service = TranscriptionService()
+    service = None
 
     try:
         # Validate upload metadata
@@ -188,6 +171,9 @@ async def create_transcription(
             temp_file_path = temp_file.name
         finally:
             await asyncio.to_thread(temp_file.close)
+            # Close UploadFile to release SpooledTemporaryFile buffer
+            await audio_file.close()
+            del audio_file
 
         # Explicitly dereference temp_file object after it's closed
         del temp_file
@@ -199,9 +185,12 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
 
-        # Sanitize filename for logging
-        sanitized_filename = audio_file.filename.replace("\n", "").replace("\r", "").replace("\t", "")
+        # Sanitize filename for logging (save before audio_file is deleted)
+        sanitized_filename = Path(temp_file_path).name
         logger.info(f"[{short_trace_id}] Processing: {sanitized_filename} ({bytes_written / 1024 / 1024:.2f}MB)", extra={"trace_id": trace_id})
+
+        # Create service only after successful file upload
+        service = TranscriptionService()
 
         result = await service.process_audio(
             audio_file_path=temp_file_path,
@@ -210,7 +199,7 @@ async def create_transcription(
         )
 
         # Record metrics
-        stt_transcriptions_total.labels(status='success', language=result.original_language).inc()
+        stt_transcriptions_total.labels(status="success", language=result.original_language).inc()
         stt_audio_duration_seconds.observe(result.audio_duration_seconds)
         stt_transcription_confidence.labels(language=result.original_language).set(result.confidence_average)
         stt_transcription_time.observe(result.transcription_time_seconds)
@@ -226,7 +215,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Audio size error: {e}", extra={"trace_id": trace_id})
-        stt_transcriptions_total.labels(status='error_size', language='unknown').inc()
+        stt_transcriptions_total.labels(status="error_size", language="unknown").inc()
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=str(e),
@@ -235,7 +224,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Audio format error: {e}", extra={"trace_id": trace_id})
-        stt_transcriptions_total.labels(status='error_format', language='unknown').inc()
+        stt_transcriptions_total.labels(status="error_format", language="unknown").inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -244,7 +233,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Validation error: {e}", extra={"trace_id": trace_id})
-        stt_transcriptions_total.labels(status='error_validation', language='unknown').inc()
+        stt_transcriptions_total.labels(status="error_validation", language="unknown").inc()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
@@ -253,7 +242,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] V2 processing failed: {e}", exc_info=True, extra={"trace_id": trace_id})
-        stt_transcriptions_total.labels(status='error_processing', language='unknown').inc()
+        stt_transcriptions_total.labels(status="error_processing", language="unknown").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Processing failed: {str(e)}",
@@ -307,13 +296,13 @@ async def debug_memory_stats():
 
     # Read container memory from /proc/self/status
     try:
-        with open('/proc/self/status') as f:
+        with open("/proc/self/status") as f:
             for line in f:
-                if line.startswith('VmRSS:'):
+                if line.startswith("VmRSS:"):
                     # Resident Set Size - actual physical memory used
                     rss_kb = int(line.split()[1])
                     response["memory"]["container_rss_mb"] = round(rss_kb / 1024, 2)
-                elif line.startswith('VmSize:'):
+                elif line.startswith("VmSize:"):
                     # Virtual memory size
                     vsize_kb = int(line.split()[1])
                     response["memory"]["container_vsize_mb"] = round(vsize_kb / 1024, 2)
