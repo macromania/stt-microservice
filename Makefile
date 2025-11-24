@@ -20,6 +20,12 @@ run-api: ## Run the FastAPI application (development mode with auto-reload)
 	@echo "[$$(date '+%Y-%m-%d %H:%M:%S')] Starting FastAPI in development mode..."
 	@poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 
+
+load-test: ## Run load test against local Kubernetes cluster (with proper load balancing)
+	@SERVICE_URL=$$(./scripts/get-service-url.sh) && \
+	echo "Using service URL: $$SERVICE_URL" && \
+	./scripts/run-load-test.sh -e BASE_URL=$$SERVICE_URL load-test.js
+
 # Local Kubernetes Cluster
 setup-local-cluster: ## Setup Minikube cluster with Prometheus and Grafana
 	@echo "Setting up Minikube cluster..."

@@ -4,13 +4,29 @@ This guide explains how to run load tests against the STT API using k6 and the L
 
 ## Quick Start
 
+### Testing Against Local Minikube Cluster
+
+**IMPORTANT:** For proper load balancing across multiple pods, you MUST use the minikube service URL, NOT `kubectl port-forward`.
+
 ```bash
-# Use the wrapper script - it handles everything automatically!
-./scripts/run-load-test.sh load-test.js
+# 1. Get the service URL (this uses NodePort for proper load balancing)
+minikube service stt-service -p stt-microservice -n default --url
+# Example output: http://192.168.49.2:31234
+
+# 2. Run load test with that URL
+./scripts/run-load-test.sh -e BASE_URL=http://192.168.49.2:31234 load-test.js
 
 # Or run specific test modes
-./scripts/run-load-test.sh -e TEST_MODE=smoke load-test.js
-./scripts/run-load-test.sh -e TEST_MODE=stress load-test.js
+./scripts/run-load-test.sh -e TEST_MODE=smoke -e BASE_URL=http://192.168.49.2:31234 load-test.js
+```
+
+**Why?** `kubectl port-forward` creates a tunnel to a single pod, bypassing the Kubernetes service load balancer. Using the minikube service URL ensures requests are distributed across all pods.
+
+### Testing Against Production
+
+```bash
+# Use the external URL
+./scripts/run-load-test.sh -e BASE_URL=https://your-api.example.com load-test.js
 ```
 
 The `run-load-test.sh` wrapper automatically:

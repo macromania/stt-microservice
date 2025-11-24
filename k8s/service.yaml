@@ -5,11 +5,12 @@ metadata:
   labels:
     app: stt-service
 spec:
-  type: ClusterIP
+  type: NodePort  # Changed from ClusterIP to enable external access with load balancing
   ports:
   - port: 8000
     targetPort: http
     protocol: TCP
     name: http-traffic
+    # nodePort: 30800  # Optional: specify a fixed port (30000-32767)
   selector:
     app: stt-service
