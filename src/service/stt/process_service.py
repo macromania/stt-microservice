@@ -270,7 +270,7 @@ class ProcessIsolatedTranscriptionService:
         try:
             logger.info("Shutting down process pool...")
             self.pool.close()
-            self.pool.join(timeout=30)
+            self.pool.join()  # join() doesn't accept timeout parameter
             logger.info("Process pool shutdown complete")
         except Exception as e:
             logger.error(f"Error during pool shutdown: {e}")

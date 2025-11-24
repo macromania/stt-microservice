@@ -35,6 +35,21 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown code here
+    logger.info("Shutting down application...")
+
+    # Shutdown process pool if it exists
+    try:
+        from src.api.stt import get_process_service
+
+        # Check if the service was ever created (lru_cache will have it cached)
+        if get_process_service.cache_info().currsize > 0:
+            logger.info("Shutting down process-isolated transcription service...")
+            service = get_process_service()
+            service.shutdown()
+            logger.info("Process pool shut down successfully")
+    except (ImportError, AttributeError) as e:
+        logger.debug(f"No process service to shutdown: {e}")
+
     logger.info("Application shutdown completed")
 
 

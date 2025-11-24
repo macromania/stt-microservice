@@ -1,6 +1,7 @@
 """Speech-to-Text V2 API router with async implementation."""
 
 import asyncio
+from functools import lru_cache
 import gc
 import linecache
 import logging
@@ -60,6 +61,23 @@ process_execution_time = Histogram(
 process_timeout_total = Counter("process_timeout_total", "Total number of process timeouts")
 
 process_crash_total = Counter("process_crash_total", "Total number of process crashes")
+
+
+@lru_cache(maxsize=1)
+def get_process_service():
+    """Get cached ProcessIsolatedTranscriptionService instance (singleton).
+
+    Uses lru_cache to create and reuse a single service instance with persistent
+    process pool. The pool is only shut down on application shutdown, not per-request.
+
+    Returns
+    -------
+    ProcessIsolatedTranscriptionService
+        Cached service instance with persistent worker pool
+    """
+    from src.service.stt.process_service import ProcessIsolatedTranscriptionService
+
+    return ProcessIsolatedTranscriptionService()
 
 
 def get_speech_service() -> TranscriptionService:
@@ -313,8 +331,6 @@ async def create_transcription_process_isolated(
     """
     from time import time
 
-    from src.service.stt.process_service import ProcessIsolatedTranscriptionService
-
     temp_file_path = None
     service = None
     start_time = time()
@@ -370,8 +386,8 @@ async def create_transcription_process_isolated(
             extra={"trace_id": trace_id},
         )
 
-        # Create process-isolated service
-        service = ProcessIsolatedTranscriptionService()
+        # Get singleton process-isolated service (keeps pool alive)
+        service = get_process_service()
 
         # Execute in isolated process
         result = await service.process_audio(
@@ -470,13 +486,8 @@ async def create_transcription_process_isolated(
         ) from e
 
     finally:
-        # Cleanup service instance
-        try:
-            if service is not None:
-                service.shutdown()
-            del service
-        except (NameError, UnboundLocalError, AttributeError):
-            pass
+        # Note: service is a singleton, don't shutdown the pool per-request
+        # Pool will be shut down on application shutdown via lifespan event
 
         # Force garbage collection to release native SDK resources
         gc.collect()
