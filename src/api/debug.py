@@ -551,3 +551,200 @@ async def profile_memory(
                 Path(temp_file).unlink()
             except Exception as e:
                 logger.warning(f"Failed to delete temp file {temp_file}: {e}")
+
+
+@router.post("/memory-profile-deep")
+async def profile_memory_deep(
+    audio_file: UploadFile = File(..., description="Audio file to process with comprehensive memory profiling"),
+) -> dict:
+    """
+    Deep memory profiling with GC analysis and cleanup phase tracking.
+
+    Provides comprehensive memory analysis including:
+    - Line-by-line profiling of process_audio and _sync_transcribe_impl
+    - Memory snapshots before/after each major phase
+    - GC effectiveness analysis
+    - Cleanup phase tracking
+    - Memory retention/leak detection
+
+    Returns detailed insights into where memory is allocated and whether cleanup is effective.
+    """
+    import gc as garbage_collector
+
+    from memory_profiler import profile as mp_profile
+
+    from src.core.profiler import compare_memory_snapshots, get_memory_snapshot, parse_memory_profiler_output
+    from src.service.stt.service import TranscriptionService, _sync_transcribe_impl
+
+    # Validate file
+    if not audio_file or not audio_file.filename:
+        raise HTTPException(status_code=400, detail="No audio file provided")
+
+    file_ext = Path(audio_file.filename).suffix.lower()
+    allowed_extensions = {".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".webm", ".mp4"}
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file format. Allowed: {', '.join(allowed_extensions)}",
+        )
+
+    temp_file = None
+    try:
+        # Save uploaded file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+            temp_file = tmp.name
+            content = await audio_file.read()
+            tmp.write(content)
+
+        logger.info(f"Deep profiling for: {audio_file.filename} ({len(content)} bytes)")
+
+        # Phase 0: Initial state
+        snapshot_initial = get_memory_snapshot("0_initial")
+
+        # Create service
+        service = TranscriptionService()
+        trace_id = "profile-" + str(hash(audio_file.filename))[:8]
+
+        snapshot_after_service_init = get_memory_snapshot("1_after_service_init")
+
+        # Phase 1: Profile process_audio
+        process_audio_output = io.StringIO()
+        profiled_process_audio = mp_profile(stream=process_audio_output)(service.process_audio)
+
+        snapshot_before_transcription = get_memory_snapshot("2_before_transcription")
+
+        result = await profiled_process_audio(temp_file, language="auto", trace_id=trace_id)
+
+        snapshot_after_transcription = get_memory_snapshot("3_after_transcription")
+
+        # Parse process_audio profiling
+        process_audio_profiling = process_audio_output.getvalue()
+        process_audio_output.close()
+        process_audio_data = parse_memory_profiler_output(process_audio_profiling)
+
+        # Phase 2: Force GC and measure
+        garbage_collector.collect()
+        garbage_collector.collect()
+        garbage_collector.collect()  # Full collection
+        snapshot_after_first_gc = get_memory_snapshot("4_after_first_gc")
+
+        # Phase 3: Profile _sync_transcribe_impl directly (for detailed line-by-line)
+        # Create fresh temp file for this test
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp2:
+            temp_file_2 = tmp2.name
+            tmp2.write(content)
+
+        sync_transcribe_output = io.StringIO()
+        profiled_sync_transcribe = mp_profile(stream=sync_transcribe_output)(_sync_transcribe_impl)
+
+        snapshot_before_sync_transcribe = get_memory_snapshot("5_before_sync_transcribe_test")
+
+        # Run sync transcribe in thread pool (mimicking production)
+        from concurrent.futures import ThreadPoolExecutor
+
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="profile")
+        loop = asyncio.get_running_loop()
+
+        _ = await loop.run_in_executor(
+            executor,
+            profiled_sync_transcribe,
+            temp_file_2,
+            "auto",
+            trace_id,
+            service.resource_name,
+            service.speech_region,
+        )
+
+        executor.shutdown(wait=True)
+        del executor
+
+        snapshot_after_sync_transcribe = get_memory_snapshot("6_after_sync_transcribe_test")
+
+        # Parse sync_transcribe profiling
+        sync_transcribe_profiling = sync_transcribe_output.getvalue()
+        sync_transcribe_output.close()
+        sync_transcribe_data = parse_memory_profiler_output(sync_transcribe_profiling)
+
+        # Phase 4: Final GC
+        garbage_collector.collect()
+        garbage_collector.collect()
+        garbage_collector.collect()
+        snapshot_final = get_memory_snapshot("7_final_after_full_gc")
+
+        # Calculate comparisons
+        comparison_service_init = compare_memory_snapshots(snapshot_initial, snapshot_after_service_init)
+        comparison_transcription = compare_memory_snapshots(snapshot_before_transcription, snapshot_after_transcription)
+        comparison_first_gc = compare_memory_snapshots(snapshot_after_transcription, snapshot_after_first_gc)
+        comparison_sync_test = compare_memory_snapshots(snapshot_before_sync_transcribe, snapshot_after_sync_transcribe)
+        comparison_final_gc = compare_memory_snapshots(snapshot_after_sync_transcribe, snapshot_final)
+        comparison_overall = compare_memory_snapshots(snapshot_initial, snapshot_final)
+
+        # Cleanup temp file 2
+        try:
+            Path(temp_file_2).unlink()
+        except Exception:
+            pass
+
+        # Build comprehensive response
+        return {
+            "status": "success",
+            "audio_file": audio_file.filename,
+            "audio_size_bytes": len(content),
+            "transcription_metadata": {
+                "original_language": result.original_language,
+                "segment_count": len(result.segments),
+                "processing_time_seconds": result.processing_time_seconds,
+            },
+            "memory_snapshots": {
+                "0_initial": snapshot_initial,
+                "1_after_service_init": snapshot_after_service_init,
+                "2_before_transcription": snapshot_before_transcription,
+                "3_after_transcription": snapshot_after_transcription,
+                "4_after_first_gc": snapshot_after_first_gc,
+                "5_before_sync_transcribe_test": snapshot_before_sync_transcribe,
+                "6_after_sync_transcribe_test": snapshot_after_sync_transcribe,
+                "7_final_after_full_gc": snapshot_final,
+            },
+            "memory_comparisons": {
+                "service_init": comparison_service_init,
+                "transcription_impact": comparison_transcription,
+                "first_gc_effectiveness": comparison_first_gc,
+                "sync_transcribe_test": comparison_sync_test,
+                "final_gc_effectiveness": comparison_final_gc,
+                "overall_retention": comparison_overall,
+            },
+            "profiling_data": {
+                "process_audio": process_audio_data,
+                "_sync_transcribe_impl": sync_transcribe_data,
+            },
+            "analysis": {
+                "peak_memory_mb": snapshot_after_transcription["rss_mb"],
+                "initial_memory_mb": snapshot_initial["rss_mb"],
+                "final_memory_mb": snapshot_final["rss_mb"],
+                "total_leaked_mb": round(snapshot_final["rss_mb"] - snapshot_initial["rss_mb"], 2),
+                "gc_recovered_mb": round(snapshot_after_transcription["rss_mb"] - snapshot_final["rss_mb"], 2),
+                "gc_effectiveness_pct": round(
+                    (snapshot_after_transcription["rss_mb"] - snapshot_final["rss_mb"]) / max(snapshot_after_transcription["rss_mb"] - snapshot_initial["rss_mb"], 1) * 100,
+                    1,
+                ),
+                "objects_retained": snapshot_final["total_objects"] - snapshot_initial["total_objects"],
+                "azure_sdk_objects_retained": snapshot_final["azure_sdk_objects"] - snapshot_initial["azure_sdk_objects"],
+            },
+            "warnings": [
+                "Memory profiling adds significant overhead",
+                "Results may not reflect production performance",
+                "Multiple transcriptions run for comprehensive analysis",
+            ],
+        }
+
+    except Exception as e:
+        logger.exception(f"Error during deep profiling: {e}")
+        raise HTTPException(status_code=500, detail=f"Deep profiling failed: {e!s}")
+
+    finally:
+        # Cleanup
+        if temp_file and Path(temp_file).exists():
+            try:
+                Path(temp_file).unlink()
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {temp_file}: {e}")
