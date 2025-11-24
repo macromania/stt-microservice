@@ -1,5 +1,6 @@
 """Debug API endpoints for memory and performance monitoring."""
 
+import asyncio
 import gc
 import io
 import linecache
