@@ -2,6 +2,7 @@
 
 import asyncio
 import gc
+import linecache
 import logging
 from pathlib import Path
 import tempfile
@@ -268,6 +269,10 @@ async def create_transcription(
             finally:
                 # Always dereference path variable after cleanup attempt
                 del temp_file_path
+
+        # Clear linecache to prevent memory leak from exc_info=True logging
+        # linecache caches source files indefinitely when formatting stack traces
+        linecache.clearcache()
 
         # Force garbage collection after heavy operation
         gc.collect()

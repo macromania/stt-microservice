@@ -8,6 +8,7 @@ from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from src.api.debug import router as debug_router
 from src.api.stt import router as stt_router
 from src.core.config import get_settings
 from src.core.logging import setup_logging
@@ -88,6 +89,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 # Register API routers
 app.include_router(stt_router)
+app.include_router(debug_router)
 
 # Setup Prometheus metrics
 Instrumentator().instrument(app).expose(app)
