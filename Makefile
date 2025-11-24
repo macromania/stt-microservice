@@ -41,7 +41,7 @@ teardown-local-cluster: ## Delete Minikube cluster and all resources
 local-grafana: ## Port-forward Grafana to localhost:3000 (Ctrl+C to stop)
 	@echo "Opening Grafana at http://localhost:3000"
 	@echo "Username: admin"
-	@echo "Password: $$(kubectl get secret -n default kube-prometheus-stack-grafana -o jsonpath=\"{.data.admin-password}\" | base64 --decode)"
+	@echo "Password: $$(kubectl get secret -n default kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -D)"
 	@kubectl port-forward -n default svc/kube-prometheus-stack-grafana 3000:80
 
 local-prometheus: ## Port-forward Prometheus to localhost:9090 (Ctrl+C to stop)
@@ -51,6 +51,16 @@ local-prometheus: ## Port-forward Prometheus to localhost:9090 (Ctrl+C to stop)
 local-api: ## Port-forward STT API to localhost:8000 (Ctrl+C to stop)
 	@echo "Opening STT API at http://localhost:8000"
 	@kubectl port-forward -n default svc/stt-service 8000:8000
+
+import-grafana-dashboard: ## Import STT dashboard into Grafana
+	@echo "Importing STT dashboard to Grafana..."
+	@GRAFANA_POD=$$(kubectl get pod -n default -l app.kubernetes.io/name=grafana -o jsonpath="{.items[0].metadata.name}"); \
+	kubectl cp k8s/grafana-dashboard.json default/$$GRAFANA_POD:/tmp/dashboard.json; \
+	GRAFANA_PASSWORD=$$(kubectl get secret -n default kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 -D); \
+	kubectl exec -n default $$GRAFANA_POD -- curl -X POST -H "Content-Type: application/json" -u admin:$$GRAFANA_PASSWORD \
+		-d '{"dashboard": '"$$(cat k8s/grafana-dashboard.json)"', "overwrite": true, "message": "Updated via kubectl"}' \
+		http://localhost:3000/api/dashboards/db || echo "Note: Dashboard import may require manual steps. See Grafana UI."
+	@echo "Dashboard import attempted. Check Grafana at http://localhost:3000/dashboards"
 
 cleanup-local-cluster: ## Cleanup Minikube cluster
 	@minikube delete -p stt-microservice
