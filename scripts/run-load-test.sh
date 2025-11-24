@@ -53,6 +53,7 @@ echo ""
 
 # Load environment variables from .env.k6 and export them for k6
 ENV_VARS=""
+WEB_DASHBOARD_ENABLED="false"
 if [ -f "${ENV_FILE}" ]; then
     echo "Loading configuration from .env.k6..."
     # Read .env.k6 and build -e flags for k6
@@ -63,6 +64,13 @@ if [ -f "${ENV_FILE}" ]; then
         # Remove leading/trailing whitespace and quotes
         key=$(echo "$key" | xargs)
         value=$(echo "$value" | xargs | sed "s/^['\"]//;s/['\"]$//")
+        
+        # Check if this is the web dashboard setting
+        if [ "$key" = "K6_WEB_DASHBOARD" ]; then
+            WEB_DASHBOARD_ENABLED="$value"
+            # Don't pass K6_WEB_DASHBOARD as -e flag, it's handled separately
+            continue
+        fi
         
         # Convert absolute paths to relative for path-related variables
         if [[ "$key" == *"PATH"* ]] || [[ "$key" == *"DIR"* ]] || [[ "$key" == *"LIST"* ]]; then
@@ -85,13 +93,37 @@ fi
 # Change to project root before running k6 (ensures relative paths work)
 cd "${PROJECT_ROOT}"
 
+# Create reports directory if it doesn't exist
+REPORTS_DIR="${PROJECT_ROOT}/reports"
+mkdir -p "${REPORTS_DIR}"
+
 # Check if web dashboard should be enabled
 DASHBOARD_FLAG=""
-if [ "${K6_WEB_DASHBOARD}" = "true" ] || [ "${K6_WEB_DASHBOARD}" = "1" ]; then
-    DASHBOARD_FLAG="--out web-dashboard"
-    echo "✓ Web dashboard enabled"
-    echo "  Dashboard will be available at: http://127.0.0.1:5665"
-    echo ""
+REPORT_FILE=""
+if [ "${WEB_DASHBOARD_ENABLED}" = "true" ] || [ "${WEB_DASHBOARD_ENABLED}" = "1" ]; then
+    # Check k6 version - web dashboard requires v0.47.0+
+    K6_VERSION=$(k6 version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    K6_MAJOR=$(echo "$K6_VERSION" | cut -d'v' -f2 | cut -d'.' -f1)
+    K6_MINOR=$(echo "$K6_VERSION" | cut -d'v' -f2 | cut -d'.' -f2)
+    
+    if [ "$K6_MAJOR" -gt 0 ] || ([ "$K6_MAJOR" -eq 0 ] && [ "$K6_MINOR" -ge 47 ]); then
+        # Generate timestamp-based report filename
+        TIMESTAMP=$(date +"%Y-%m-%d-%H%M%S")
+        REPORT_FILE="${REPORTS_DIR}/k6-report-${TIMESTAMP}.html"
+        
+        DASHBOARD_FLAG="--out web-dashboard"
+        export K6_WEB_DASHBOARD_EXPORT="${REPORT_FILE}"
+        
+        echo "✓ Web dashboard enabled"
+        echo "  Dashboard will be available at: http://127.0.0.1:5665"
+        echo "  Report will be saved to: ${REPORT_FILE}"
+        echo ""
+    else
+        echo "⚠ Web dashboard requires k6 v0.47.0 or later (you have $K6_VERSION)"
+        echo "  Upgrade with: brew upgrade k6"
+        echo "  Continuing without web dashboard..."
+        echo ""
+    fi
 fi
 
 # Run k6 with environment variables and all arguments passed through

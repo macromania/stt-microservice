@@ -159,6 +159,29 @@ Extended duration for stability:
 
 k6 provides a real-time web dashboard for monitoring test execution with interactive charts and metrics.
 
+**Requirements:** k6 v0.47.0 or later
+
+### Upgrade k6
+
+If you have an older version, upgrade to enable the web dashboard:
+
+```bash
+# macOS
+brew upgrade k6
+
+# Linux (Debian/Ubuntu)
+sudo apt-get update
+sudo apt-get install --only-upgrade k6
+
+# Or download latest from https://github.com/grafana/k6/releases
+```
+
+Check your version:
+
+```bash
+k6 version
+```
+
 ### Enable Web Dashboard
 
 Set `K6_WEB_DASHBOARD=true` in your `.env.k6` file or pass it as an environment variable:
@@ -187,15 +210,28 @@ Open this URL in your browser while the test is running to view:
 - Error rates and trends
 - Custom metrics visualization
 
-### Export Dashboard Report
+### Automatic Report Saving
 
-You can export the dashboard as an HTML report after test completion by setting:
+When the web dashboard is enabled, test reports are **automatically saved** with timestamps:
 
-```bash
-K6_WEB_DASHBOARD_EXPORT=html-report.html
+```
+reports/k6-report-2025-11-24-143052.html
+reports/k6-report-2025-11-24-154521.html
+reports/k6-report-2025-11-24-161203.html
 ```
 
-This creates a standalone HTML file with all test results that can be shared or archived.
+**Filename format:** `k6-report-YYYY-MM-DD-HHMMSS.html`
+
+Each report is a standalone HTML file containing:
+
+- Complete test results and metrics
+- Interactive charts and visualizations
+- Request/response statistics
+- Error details
+- Can be opened in any browser
+- Can be shared or archived
+
+The `reports/` directory is automatically created and excluded from git (via `.gitignore`).
 
 ### Custom Dashboard Host
 
@@ -360,11 +396,13 @@ Audio files list not found. Please run: scripts/generate-audio-list.sh
 ```
 
 **Solution:** Use the wrapper script which handles this automatically:
+
 ```bash
 ./scripts/run-load-test.sh load-test.js
 ```
 
 Or manually download:
+
 ```bash
 ./scripts/generate-audio-list.sh
 ```
