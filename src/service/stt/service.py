@@ -55,26 +55,19 @@ class TranscriptionService:
         "auto": None,
     }
 
-    def __init__(self) -> None:
-        """Initialize V2 service (credentials created per-request to avoid memory leaks)."""
-        config = get_settings()
+    def __init__(self, enable_profiling: bool = False):
+        """
+        Initialize service with settings.
 
-        # Speech SDK configuration
-        self.speech_region = config.stt_azure_speech_region
-        self.resource_name = config.stt_azure_speech_resource_name
-
-        if not self.speech_region:
-            raise ValueError("Azure Speech region not configured. Set STT_AZURE_SPEECH_REGION")
-
-        # Don't cache credential - create it per request to avoid memory accumulation
-        # Credential objects hold internal state that can leak memory
-        self.credential = None
-
-        # Note: No logging in __init__ since it happens before request context is established
-        # Trace ID logging begins in process_audio()
-
-    # Note: No logging in __init__ since it happens before request context is established
-    # Trace ID logging begins in process_audio()
+        Parameters
+        ----------
+        enable_profiling : bool
+            If True, enables memory profiling for debugging (adds overhead)
+        """
+        settings = get_settings()
+        self.speech_region = settings.azure_speech_region
+        self.resource_name = settings.azure_speech_resource_name
+        self.enable_profiling = enable_profiling
 
     async def process_audio(self, audio_file_path: str, language: str = "auto", trace_id: str | None = None) -> TranscriptionResponse:
         """

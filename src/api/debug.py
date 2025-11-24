@@ -1,12 +1,15 @@
 """Debug API endpoints for memory and performance monitoring."""
 
 import gc
+import io
 import linecache
 import logging
+from pathlib import Path
 import sys
+import tempfile
 import tracemalloc
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from src.core.config import get_settings
 
@@ -456,3 +459,95 @@ async def get_allocation_traceback(
     return {
         "top_allocations": allocations,
     }
+
+
+@router.post("/memory-profile")
+async def profile_memory(
+    audio_file: UploadFile = File(..., description="Audio file to process with memory profiling"),
+) -> dict:
+    """
+    Profile memory usage of process_audio and _transcribe_async methods.
+
+    This endpoint accepts an audio file, processes it through the transcription service
+    with memory profiling enabled, and returns detailed line-by-line memory usage data.
+
+    Returns profiling data for:
+    - process_audio method (main entry point)
+    - _sync_transcribe internal function (Azure SDK interaction)
+
+    Note: This endpoint has significant overhead and should only be used for debugging.
+    """
+    from memory_profiler import profile as mp_profile
+
+    from src.service.stt.service import TranscriptionService
+
+    # Validate file
+    if not audio_file or not audio_file.filename:
+        raise HTTPException(status_code=400, detail="No audio file provided")
+
+    file_ext = Path(audio_file.filename).suffix.lower()
+    allowed_extensions = {".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".webm", ".mp4"}
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file format. Allowed: {', '.join(allowed_extensions)}",
+        )
+
+    # Save uploaded file to temp location
+    temp_file = None
+    try:
+        # Create temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+            temp_file = tmp.name
+            content = await audio_file.read()
+            tmp.write(content)
+
+        logger.info(f"Profiling transcription for file: {audio_file.filename} ({len(content)} bytes)")
+
+        # Create service instance
+        service = TranscriptionService()
+
+        # Profile process_audio method
+        process_audio_output = io.StringIO()
+        profiled_process_audio = mp_profile(stream=process_audio_output)(service.process_audio)
+
+        # Execute with profiling
+        result = await profiled_process_audio(temp_file, language="auto")
+
+        # Get profiling output
+        process_audio_profiling = process_audio_output.getvalue()
+        process_audio_output.close()
+
+        # Parse the profiling data
+        from src.core.profiler import parse_memory_profiler_output
+
+        process_audio_data = parse_memory_profiler_output(process_audio_profiling)
+
+        # Return profiling results along with transcription metadata
+        return {
+            "status": "success",
+            "audio_file": audio_file.filename,
+            "audio_size_bytes": len(content),
+            "transcription_metadata": {
+                "original_language": result.original_language,
+                "segment_count": len(result.segments),
+                "processing_time_seconds": result.processing_time_seconds,
+                "transcription_time_seconds": result.transcription_time_seconds,
+            },
+            "profiling_data": {
+                "process_audio": process_audio_data,
+            },
+            "warning": "Memory profiling adds significant overhead. Results may not reflect production performance.",
+        }
+
+    except Exception as e:
+        logger.exception(f"Error during memory profiling: {e}")
+        raise HTTPException(status_code=500, detail=f"Profiling failed: {e!s}")
+
+    finally:
+        # Cleanup temp file
+        if temp_file and Path(temp_file).exists():
+            try:
+                Path(temp_file).unlink()
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {temp_file}: {e}")
