@@ -1,14 +1,15 @@
 """Speech-to-Text V2 API router with async implementation."""
 
 import asyncio
-from functools import lru_cache
+import gc
 import logging
-from pathlib import Path
 import tempfile
+from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from prometheus_client import Counter, Histogram, Gauge
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from prometheus_client import Counter, Gauge, Histogram
 
 from src.core.config import get_settings
 from src.core.exception import AudioFileSizeError, AudioFormatError
@@ -63,7 +64,6 @@ stt_translation_time = Histogram(
 )
 
 
-@lru_cache
 def get_speech_service() -> TranscriptionService:
     """
     Get cached TranscriptionServiceV2 instance (singleton).
@@ -116,7 +116,6 @@ def validate_upload_file(audio_file: UploadFile) -> None:
 @router.post("", response_model=TranscriptionResponse)
 async def create_transcription(
     audio_file: Annotated[UploadFile, File(description="Audio file (max 100MB)")],
-    service: Annotated[TranscriptionService, Depends(get_speech_service)],
     language: Annotated[str, Form(description="Language code or 'auto'")] = "auto",
 ) -> TranscriptionResponse:
     """
@@ -147,6 +146,7 @@ async def create_transcription(
         500: Processing failed
     """
     temp_file_path = None
+    service = TranscriptionService()
 
     try:
         # Validate upload metadata
@@ -201,6 +201,7 @@ async def create_transcription(
         stt_translation_time.observe(result.translation_time_seconds)
 
         logger.info(f"[{short_trace_id}] V2 complete: {len(result.segments)} segments, {result.original_language} → en", extra={"trace_id": trace_id})
+
         return result
 
     except HTTPException:
@@ -242,6 +243,15 @@ async def create_transcription(
             detail=f"Processing failed: {str(e)}",
         ) from e
     finally:
+        # Cleanup service instance to release SDK memory
+        try:
+            del service
+        except (NameError, UnboundLocalError):
+            pass  # Service wasn't created yet (early error)
+
+        # Force garbage collection to release native SDK resources
+        gc.collect()
+
         # Cleanup temp file
         if temp_file_path and Path(temp_file_path).exists():
             try:
@@ -252,5 +262,43 @@ async def create_transcription(
                 logger.warning(f"[{short_trace_id}] Failed to cleanup temp file: {e}", extra={"trace_id": trace_id})
 
         # Force garbage collection after heavy operation
-        import gc
         gc.collect()
+
+
+@router.get("/debug/memory")
+async def debug_memory_stats():
+    """
+    Debug endpoint to check container memory statistics.
+
+    Returns container RSS (actual physical memory used) and memory breakdown.
+    This shows real container memory usage, not just Python heap.
+
+    Returns
+    -------
+    dict
+        Memory statistics including container RSS, virtual size, and allocator info
+    """
+    # Force garbage collection before measurement
+    gc.collect()
+
+    response = {
+        "allocator": "jemalloc",
+        "memory": {},
+    }
+
+    # Read container memory from /proc/self/status
+    try:
+        with open('/proc/self/status') as f:
+            for line in f:
+                if line.startswith('VmRSS:'):
+                    # Resident Set Size - actual physical memory used
+                    rss_kb = int(line.split()[1])
+                    response["memory"]["container_rss_mb"] = round(rss_kb / 1024, 2)
+                elif line.startswith('VmSize:'):
+                    # Virtual memory size
+                    vsize_kb = int(line.split()[1])
+                    response["memory"]["container_vsize_mb"] = round(vsize_kb / 1024, 2)
+    except Exception as e:
+        response["error"] = f"Could not read /proc/self/status: {e}"
+
+    return response

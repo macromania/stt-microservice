@@ -7,7 +7,9 @@ Always transcribes with diarization and translates to English.
 
 import asyncio
 from datetime import datetime
+import gc
 import logging
+import threading
 import time
 from typing import Any
 from uuid import uuid4
@@ -52,7 +54,7 @@ class TranscriptionService:
     }
 
     def __init__(self) -> None:
-        """Initialize V2 service with Azure credentials (cached for reuse)."""
+        """Initialize V2 service (credentials created per-request to avoid memory leaks)."""
         config = get_settings()
 
         # Speech SDK configuration
@@ -62,9 +64,9 @@ class TranscriptionService:
         if not self.speech_region:
             raise ValueError("Azure Speech region not configured. Set STT_AZURE_SPEECH_REGION")
 
-        # Cache Azure credential for reuse across all requests
-        # This eliminates ~2-3 seconds of credential acquisition overhead per request
-        self.credential = DefaultAzureCredential()
+        # Don't cache credential - create it per request to avoid memory accumulation
+        # Credential objects hold internal state that can leak memory
+        self.credential = None
 
         # Note: No logging in __init__ since it happens before request context is established
         # Trace ID logging begins in process_audio()
@@ -166,11 +168,13 @@ class TranscriptionService:
             auto_detect_config = None
 
             try:
-                # Get token: use environment variable if available (K8s), otherwise use credential
+                # Get token: use environment variable if available (K8s), otherwise create fresh credential
                 import os
                 token = os.getenv("AZURE_ACCESS_TOKEN")
                 if not token:
-                    token = self.credential.get_token("https://cognitiveservices.azure.com/.default").token
+                    # Create credential per request to avoid memory leaks from cached credential state
+                    credential = DefaultAzureCredential()
+                    token = credential.get_token("https://cognitiveservices.azure.com/.default").token
 
                 if self.resource_name:
                     endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/"
@@ -306,5 +310,41 @@ class TranscriptionService:
                 del speech_config
                 del auto_detect_config
 
-        # Run blocking SDK code in thread pool
-        return await asyncio.to_thread(_sync_transcribe)
+                # Force immediate GC to release native resources
+                gc.collect()
+
+        # Run in a fresh thread (not thread pool) to ensure complete cleanup
+        # ThreadPoolExecutor reuses threads which can keep SDK objects alive in stack frames
+        # Fresh threads die completely after request, releasing all memory
+        result_container = {}      # Holds successful result (threads can't return directly)
+        exception_container = {}   # Holds any exception from worker thread
+
+        def _thread_wrapper():
+            """Wrapper to capture result/exception from sync work."""
+            try:
+                result_container['result'] = _sync_transcribe()
+            except Exception as e:
+                exception_container['error'] = e
+
+        # Create brand new thread (not from pool) - will die after request
+        thread = threading.Thread(target=_thread_wrapper, daemon=False)
+        thread.start()
+
+        # Wait for thread to complete (async-safe blocking)
+        # timeout = 300s (transcription) + 10s (cleanup buffer)
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: thread.join(timeout=310)
+        )
+
+        # Check if thread timed out
+        if thread.is_alive():
+            logger.error(f"[{trace_id[:8]}] Thread timeout - thread still running", extra={"trace_id": trace_id})
+            raise TimeoutError("Transcription thread timeout")
+
+        # Re-raise any exception from worker thread
+        if 'error' in exception_container:
+            raise exception_container['error']
+
+        # Return successful result
+        return result_container['result']
