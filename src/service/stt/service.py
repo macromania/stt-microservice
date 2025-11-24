@@ -159,6 +159,12 @@ class TranscriptionService:
 
         def _sync_transcribe() -> dict[str, Any]:
             """Synchronous transcription using Speech SDK callbacks."""
+            # Initialize SDK objects outside try block for cleanup access
+            speech_config = None
+            audio_config = None
+            transcriber = None
+            auto_detect_config = None
+
             try:
                 # Get token: use environment variable if available (K8s), otherwise use credential
                 import os
@@ -275,7 +281,30 @@ class TranscriptionService:
                 }
 
             finally:
-                pass
+                # Explicit cleanup of Azure Speech SDK objects to prevent memory leaks
+                # These objects hold internal buffers, audio streams, and network connections
+                short_trace_id = trace_id[:8]
+
+                if transcriber is not None:
+                    try:
+                        # Ensure transcription is stopped
+                        transcriber.stop_transcribing_async().get()
+
+                        # Disconnect all event handlers to break circular references
+                        transcriber.transcribed.disconnect_all()
+                        transcriber.session_stopped.disconnect_all()
+                        transcriber.canceled.disconnect_all()
+
+                        logger.debug(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
+                    except Exception as e:
+                        logger.warning(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
+
+                # Explicitly delete SDK objects to release resources immediately
+                # This helps Python's garbage collector reclaim memory faster
+                del transcriber
+                del audio_config
+                del speech_config
+                del auto_detect_config
 
         # Run blocking SDK code in thread pool
         return await asyncio.to_thread(_sync_transcribe)
