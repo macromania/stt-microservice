@@ -64,8 +64,14 @@ class FastTranscriptionService:
         if not self.speech_region:
             raise ValueError("Azure Speech region not configured. Set STT_AZURE_SPEECH_REGION")
 
-        # Construct API endpoint
-        self.endpoint = f"https://{self.speech_region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe"
+        # Construct API endpoint - use resource name (custom subdomain) for token auth
+        # This matches the SDK pattern: use custom subdomain when available
+        if self.resource_name:
+            # Token auth requires custom subdomain
+            self.endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe"
+        else:
+            # Fall back to regional endpoint (requires API key auth)
+            self.endpoint = f"https://{self.speech_region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe"
 
     async def process_audio(self, audio_file_path: str, language: str = "auto", trace_id: str | None = None) -> TranscriptionResponse:
         """
