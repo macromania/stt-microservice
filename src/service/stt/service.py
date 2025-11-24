@@ -25,6 +25,287 @@ from src.service.stt.models import TranscriptionResponse, TranscriptionSegment
 logger = logging.getLogger(__name__)
 
 
+# Module-level constants for language mapping
+LANGUAGE_MAP = {
+    "en": "en-US",
+    "en-US": "en-US",
+    "en-GB": "en-GB",
+    "ar": "ar-SA",
+    "ar-AE": "ar-AE",
+    "ar-SA": "ar-SA",
+    "auto": None,
+}
+
+
+def _sync_transcribe_impl(
+    audio_file_path: str,
+    language: str,
+    trace_id: str,
+    resource_name: str | None,
+    speech_region: str | None,
+) -> dict[str, Any]:
+    """
+    Synchronous transcription using Speech SDK callbacks.
+
+    Extracted as module-level function to enable memory profiling.
+
+    Parameters
+    ----------
+    audio_file_path : str
+        Path to audio file
+    language : str
+        Language code or "auto"
+    trace_id : str
+        Trace ID for logging
+    resource_name : str | None
+        Azure AI Services resource name
+    speech_region : str | None
+        Azure region for Speech service
+
+    Returns
+    -------
+    dict
+        Transcription results with segments, full_text, detected_language, speaker_count
+    """
+    # Initialize SDK objects outside try block for cleanup access
+    speech_config = None
+    audio_config = None
+    transcriber = None
+    auto_detect_config = None
+    credential = None
+    connection = None
+    result_queue = None
+
+    try:
+        # Get token: use environment variable if available (K8s), otherwise create fresh credential
+        import os
+
+        token = os.getenv("AZURE_ACCESS_TOKEN")
+        if not token:
+            # Create credential per request - will be explicitly closed in finally
+            credential = DefaultAzureCredential()
+            token = credential.get_token("https://cognitiveservices.azure.com/.default").token
+
+        if resource_name:
+            endpoint = f"https://{resource_name}.cognitiveservices.azure.com/"
+            speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
+            speech_config.authorization_token = token
+        else:
+            speech_config = speechsdk.SpeechConfig(region=speech_region)
+            speech_config.authorization_token = token
+
+        # Optional: Enable SDK file logging for debugging (disabled by default to reduce I/O)
+        # Uncomment to enable per-request logging to /tmp/speech-sdk-{trace_id}.log
+        # speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-sdk-{trace_id}.log")
+
+        audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
+
+        # Map language
+        azure_language = LANGUAGE_MAP.get(language.lower())
+
+        # Enable diarization
+        speech_config.set_property(
+            property_id=speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
+            value="true",
+        )
+
+        # Create transcriber with diarization
+        if azure_language:
+            short_trace_id = trace_id[:8]
+            logger.info(f"[{short_trace_id}] Using specified language for transcription: {azure_language}", extra={"trace_id": trace_id})
+            speech_config.speech_recognition_language = azure_language
+            transcriber = speechsdk.transcription.ConversationTranscriber(
+                speech_config=speech_config,
+                audio_config=audio_config,
+            )
+        else:
+            short_trace_id = trace_id[:8]
+            logger.info(f"[{short_trace_id}] Using auto-detection for transcription language", extra={"trace_id": trace_id})
+            # Auto-detection
+            speech_config.set_property(
+                property_id=speechsdk.PropertyId.SpeechServiceConnection_LanguageIdMode,
+                value="Continuous",
+            )
+            auto_detect_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(languages=["ar-AE", "ar-SA", "en-US", "en-GB"])
+            transcriber = speechsdk.transcription.ConversationTranscriber(
+                speech_config=speech_config,
+                auto_detect_source_language_config=auto_detect_config,
+                audio_config=audio_config,
+            )
+
+        # Get connection handle for explicit network cleanup
+        from azure.cognitiveservices.speech import Connection
+
+        connection = Connection.from_recognizer(transcriber)
+
+        # Callback state with queue-based pattern
+        result_queue = Queue()
+        detected_language = azure_language or "en-US"
+        done = False
+
+        def on_transcribed(evt):
+            nonlocal detected_language, result_queue
+            if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech and evt.result.text:
+                # Extract language
+                if evt.result.properties:
+                    lang = evt.result.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult)
+                    if lang:
+                        detected_language = lang
+
+                # Extract all data from evt.result immediately and put plain dict in queue
+                # No SDK object references, no complex object creation in callback
+                result_queue.put_nowait(
+                    {
+                        "text": evt.result.text,
+                        "speaker_id": evt.result.speaker_id if hasattr(evt.result, "speaker_id") else None,
+                        "offset": evt.result.offset if hasattr(evt.result, "offset") else 0,
+                        "duration": evt.result.duration if hasattr(evt.result, "duration") else 0,
+                        "language": detected_language,
+                    }
+                )
+
+        def on_stopped(evt):
+            nonlocal done
+            done = True
+
+        # Connect callbacks
+        transcriber.transcribed.connect(on_transcribed)
+        transcriber.session_stopped.connect(on_stopped)
+        transcriber.canceled.connect(on_stopped)
+
+        # Start transcription
+        short_trace_id = trace_id[:8]
+        logger.info(f"[{short_trace_id}] Starting transcription...", extra={"trace_id": trace_id})
+        transcriber.start_transcribing_async()
+
+        # Delete temp file immediately after SDK opens it (aggressive memory cleanup)
+        # File descriptor is already open, so SDK can still read. Inode freed immediately.
+        Path(audio_file_path).unlink(missing_ok=True)
+
+        # Wait for completion
+        timeout = 300
+        elapsed = 0
+        while not done and elapsed < timeout:
+            time.sleep(0.5)
+            elapsed += 0.5
+
+        short_trace_id = trace_id[:8]
+        logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
+        transcriber.stop_transcribing_async()
+
+        # Drain queue and build segments list (no SDK references in segments)
+        segments = []
+        while not result_queue.empty():
+            result_dict = result_queue.get_nowait()
+            segment = TranscriptionSegment(
+                text=result_dict["text"],
+                start_time=result_dict["offset"] / 10000000,
+                end_time=(result_dict["offset"] + result_dict["duration"]) / 10000000,
+                confidence=0.95,
+                speaker_id=f"spk_{result_dict['speaker_id']}" if result_dict["speaker_id"] else None,
+                language=result_dict["language"],
+            )
+            segments.append(segment)
+
+        # Build full text
+        full_text = "\n".join([f"[{seg.speaker_id}] {seg.text}" if seg.speaker_id else seg.text for seg in segments])
+
+        # Count speakers
+        unique_speakers = {seg.speaker_id for seg in segments if seg.speaker_id}
+        speaker_count = len(unique_speakers) if unique_speakers else None
+
+        # Segments list is already clean (no callback closure references)
+        result_segments = segments
+
+        return {
+            "segments": result_segments,
+            "full_text": full_text,
+            "detected_language": detected_language,
+            "speaker_count": speaker_count,
+        }
+
+    finally:
+        # Explicit cleanup of Azure Speech SDK objects to prevent memory leaks
+        # These objects hold internal buffers, audio streams, and network connections
+        short_trace_id = trace_id[:8]
+
+        # Close network connection first (releases TCP sockets and buffers)
+        if connection is not None:
+            try:
+                connection.close()
+                connection.connected.disconnect_all()
+                connection.disconnected.disconnect_all()
+                logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
+            except Exception as e:
+                logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
+
+        if transcriber is not None:
+            try:
+                # Ensure transcription is stopped
+                transcriber.stop_transcribing_async().get()
+
+                # Disconnect ALL event handlers to break circular references
+                # ConversationTranscriber-specific events
+                transcriber.transcribed.disconnect_all()
+                transcriber.transcribing.disconnect_all()
+                transcriber.canceled.disconnect_all()
+
+                # Recognizer base class events (inherited)
+                transcriber.session_started.disconnect_all()
+                transcriber.session_stopped.disconnect_all()
+                transcriber.speech_start_detected.disconnect_all()
+                transcriber.speech_end_detected.disconnect_all()
+
+                logger.info(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
+            except Exception as e:
+                logger.error(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
+
+        # Explicitly delete callback functions to break closures
+        try:
+            del on_transcribed
+            del on_stopped
+        except (NameError, UnboundLocalError):
+            pass  # Callbacks not created (early error)
+
+        # Delete local variables that might hold references
+        try:
+            del result_queue
+            del segments
+            del done
+            del detected_language
+        except (NameError, UnboundLocalError):
+            pass
+
+        # Close credential to release HTTP client and connection pool
+        if credential is not None:
+            try:
+                credential.close()
+                logger.info(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
+            except Exception as e:
+                logger.error(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
+
+        # Explicitly delete SDK objects to release resources immediately
+        # This helps Python's garbage collector reclaim memory faster
+        del transcriber
+        del audio_config
+        del speech_config
+        del auto_detect_config
+        del credential
+        del connection
+
+        # Clear property collections that may hold C++ references
+        try:
+            if speech_config is not None and hasattr(speech_config, "_properties"):
+                del speech_config._properties
+            if transcriber is not None and hasattr(transcriber, "_properties"):
+                del transcriber._properties
+        except (AttributeError, NameError):
+            pass
+
+        # Force immediate GC to release native resources
+        gc.collect()
+
+
 class TranscriptionService:
     """
     Async speech-to-text and translation service V2.
@@ -40,20 +321,6 @@ class TranscriptionService:
     - Azure Speech SDK (wrapped in asyncio.to_thread)
     - Azure OpenAI async client for translation
     """
-
-    # Language mapping for Azure Speech SDK
-    LANGUAGE_MAP = {
-        "en": "en-US",
-        "en-US": "en-US",
-        "en-GB": "en-GB",
-        "ar": "ar-SA",
-        "ar-AE": "ar-AE",
-        "ar-JO": "ar-JO",
-        "ar-EG": "ar-EG",
-        "ar-TN": "ar-TN",
-        "ar-SA": "ar-SA",
-        "auto": None,
-    }
 
     def __init__(self, enable_profiling: bool = False):
         """
@@ -137,7 +404,7 @@ class TranscriptionService:
         """
         Async wrapper for Azure Speech SDK transcription.
 
-        Wraps blocking Speech SDK callbacks in asyncio.to_thread.
+        Delegates to module-level _sync_transcribe_impl for profiling support.
 
         Parameters
         ----------
@@ -155,244 +422,14 @@ class TranscriptionService:
         """
 
         def _sync_transcribe() -> dict[str, Any]:
-            """Synchronous transcription using Speech SDK callbacks."""
-            # Initialize SDK objects outside try block for cleanup access
-            speech_config = None
-            audio_config = None
-            transcriber = None
-            auto_detect_config = None
-            credential = None
-            connection = None
-            result_queue = None
-
-            try:
-                # Get token: use environment variable if available (K8s), otherwise create fresh credential
-                import os
-
-                token = os.getenv("AZURE_ACCESS_TOKEN")
-                if not token:
-                    # Create credential per request - will be explicitly closed in finally
-                    credential = DefaultAzureCredential()
-                    token = credential.get_token("https://cognitiveservices.azure.com/.default").token
-
-                if self.resource_name:
-                    endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/"
-                    speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
-                    speech_config.authorization_token = token
-                else:
-                    speech_config = speechsdk.SpeechConfig(region=self.speech_region)
-                    speech_config.authorization_token = token
-
-                # Optional: Enable SDK file logging for debugging (disabled by default to reduce I/O)
-                # Uncomment to enable per-request logging to /tmp/speech-sdk-{trace_id}.log
-                # speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-sdk-{trace_id}.log")
-
-                audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
-
-                # Map language
-                azure_language = self.LANGUAGE_MAP.get(language.lower())
-
-                # Enable diarization
-                speech_config.set_property(
-                    property_id=speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
-                    value="true",
-                )
-
-                # Create transcriber with diarization
-                if azure_language:
-                    short_trace_id = trace_id[:8]
-                    logger.info(f"[{short_trace_id}] Using specified language for transcription: {azure_language}", extra={"trace_id": trace_id})
-                    speech_config.speech_recognition_language = azure_language
-                    transcriber = speechsdk.transcription.ConversationTranscriber(
-                        speech_config=speech_config,
-                        audio_config=audio_config,
-                    )
-                else:
-                    short_trace_id = trace_id[:8]
-                    logger.info(f"[{short_trace_id}] Using auto-detection for transcription language", extra={"trace_id": trace_id})
-                    # Auto-detection
-                    speech_config.set_property(
-                        property_id=speechsdk.PropertyId.SpeechServiceConnection_LanguageIdMode,
-                        value="Continuous",
-                    )
-                    auto_detect_config = speechsdk.languageconfig.AutoDetectSourceLanguageConfig(languages=["ar-AE", "ar-SA", "en-US", "en-GB"])
-                    transcriber = speechsdk.transcription.ConversationTranscriber(
-                        speech_config=speech_config,
-                        auto_detect_source_language_config=auto_detect_config,
-                        audio_config=audio_config,
-                    )
-
-                # Get connection handle for explicit network cleanup
-                from azure.cognitiveservices.speech import Connection
-
-                connection = Connection.from_recognizer(transcriber)
-
-                # Callback state with queue-based pattern
-                result_queue = Queue()
-                detected_language = azure_language or "en-US"
-                done = False
-
-                def on_transcribed(evt):
-                    nonlocal detected_language, result_queue
-                    if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech and evt.result.text:
-                        # Extract language
-                        if evt.result.properties:
-                            lang = evt.result.properties.get(speechsdk.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult)
-                            if lang:
-                                detected_language = lang
-
-                        # Extract all data from evt.result immediately and put plain dict in queue
-                        # No SDK object references, no complex object creation in callback
-                        result_queue.put_nowait(
-                            {
-                                "text": evt.result.text,
-                                "speaker_id": evt.result.speaker_id if hasattr(evt.result, "speaker_id") else None,
-                                "offset": evt.result.offset if hasattr(evt.result, "offset") else 0,
-                                "duration": evt.result.duration if hasattr(evt.result, "duration") else 0,
-                                "language": detected_language,
-                            }
-                        )
-
-                def on_stopped(evt):
-                    nonlocal done
-                    done = True
-
-                # Connect callbacks
-                transcriber.transcribed.connect(on_transcribed)
-                transcriber.session_stopped.connect(on_stopped)
-                transcriber.canceled.connect(on_stopped)
-
-                # Start transcription
-                short_trace_id = trace_id[:8]
-                logger.info(f"[{short_trace_id}] Starting transcription...", extra={"trace_id": trace_id})
-                transcriber.start_transcribing_async()
-
-                # Delete temp file immediately after SDK opens it (aggressive memory cleanup)
-                # File descriptor is already open, so SDK can still read. Inode freed immediately.
-                Path(audio_file_path).unlink(missing_ok=True)
-
-                # Wait for completion
-                timeout = 300
-                elapsed = 0
-                while not done and elapsed < timeout:
-                    time.sleep(0.5)
-                    elapsed += 0.5
-
-                short_trace_id = trace_id[:8]
-                logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
-                transcriber.stop_transcribing_async()
-
-                # Drain queue and build segments list (no SDK references in segments)
-                segments = []
-                while not result_queue.empty():
-                    result_dict = result_queue.get_nowait()
-                    segment = TranscriptionSegment(
-                        text=result_dict["text"],
-                        start_time=result_dict["offset"] / 10000000,
-                        end_time=(result_dict["offset"] + result_dict["duration"]) / 10000000,
-                        confidence=0.95,
-                        speaker_id=f"spk_{result_dict['speaker_id']}" if result_dict["speaker_id"] else None,
-                        language=result_dict["language"],
-                    )
-                    segments.append(segment)
-
-                # Build full text
-                full_text = "\n".join([f"[{seg.speaker_id}] {seg.text}" if seg.speaker_id else seg.text for seg in segments])
-
-                # Count speakers
-                unique_speakers = {seg.speaker_id for seg in segments if seg.speaker_id}
-                speaker_count = len(unique_speakers) if unique_speakers else None
-
-                # Segments list is already clean (no callback closure references)
-                result_segments = segments
-
-                return {
-                    "segments": result_segments,
-                    "full_text": full_text,
-                    "detected_language": detected_language,
-                    "speaker_count": speaker_count,
-                }
-
-            finally:
-                # Explicit cleanup of Azure Speech SDK objects to prevent memory leaks
-                # These objects hold internal buffers, audio streams, and network connections
-                short_trace_id = trace_id[:8]
-
-                # Close network connection first (releases TCP sockets and buffers)
-                if connection is not None:
-                    try:
-                        connection.close()
-                        connection.connected.disconnect_all()
-                        connection.disconnected.disconnect_all()
-                        logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
-                    except Exception as e:
-                        logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
-
-                if transcriber is not None:
-                    try:
-                        # Ensure transcription is stopped
-                        transcriber.stop_transcribing_async().get()
-
-                        # Disconnect ALL event handlers to break circular references
-                        # ConversationTranscriber-specific events
-                        transcriber.transcribed.disconnect_all()
-                        transcriber.transcribing.disconnect_all()
-                        transcriber.canceled.disconnect_all()
-
-                        # Recognizer base class events (inherited)
-                        transcriber.session_started.disconnect_all()
-                        transcriber.session_stopped.disconnect_all()
-                        transcriber.speech_start_detected.disconnect_all()
-                        transcriber.speech_end_detected.disconnect_all()
-
-                        logger.info(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
-                    except Exception as e:
-                        logger.error(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
-
-                # Explicitly delete callback functions to break closures
-                try:
-                    del on_transcribed
-                    del on_stopped
-                except (NameError, UnboundLocalError):
-                    pass  # Callbacks not created (early error)
-
-                # Delete local variables that might hold references
-                try:
-                    del result_queue
-                    del segments
-                    del done
-                    del detected_language
-                except (NameError, UnboundLocalError):
-                    pass
-
-                # Close credential to release HTTP client and connection pool
-                if credential is not None:
-                    try:
-                        credential.close()
-                        logger.info(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
-                    except Exception as e:
-                        logger.error(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
-
-                # Explicitly delete SDK objects to release resources immediately
-                # This helps Python's garbage collector reclaim memory faster
-                del transcriber
-                del audio_config
-                del speech_config
-                del auto_detect_config
-                del credential
-                del connection
-
-                # Clear property collections that may hold C++ references
-                try:
-                    if speech_config is not None and hasattr(speech_config, "_properties"):
-                        del speech_config._properties
-                    if transcriber is not None and hasattr(transcriber, "_properties"):
-                        del transcriber._properties
-                except (AttributeError, NameError):
-                    pass
-
-                # Force immediate GC to release native resources
-                gc.collect()
+            """Wrapper that calls module-level implementation."""
+            return _sync_transcribe_impl(
+                audio_file_path=audio_file_path,
+                language=language,
+                trace_id=trace_id,
+                resource_name=self.resource_name,
+                speech_region=self.speech_region,
+            )
 
         # Use a single-use thread pool executor to avoid memory retention
         # The default thread pool reuses threads which can keep SDK objects alive

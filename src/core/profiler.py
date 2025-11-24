@@ -3,14 +3,20 @@
 import asyncio
 from collections.abc import Callable
 from functools import wraps
+import gc
 import io
 import logging
+import os
 import re
 from typing import Any
 
 from memory_profiler import profile as mp_profile
+import psutil
 
 logger = logging.getLogger(__name__)
+
+# Global process handle for memory measurements
+_process = psutil.Process(os.getpid())
 
 
 def parse_memory_profiler_output(output: str) -> dict[str, Any]:
@@ -181,3 +187,82 @@ class MemoryProfiler:
     def get_results(self) -> dict[str, Any] | None:
         """Get parsed profiling results."""
         return self.profiling_data
+
+
+def get_memory_snapshot(label: str = "") -> dict[str, Any]:
+    """
+    Capture current memory state snapshot.
+
+    Includes RSS memory, object counts, GC stats, and Azure SDK object counts.
+
+    Parameters
+    ----------
+    label : str
+        Optional label for this snapshot
+
+    Returns
+    -------
+    dict
+        Memory snapshot with detailed metrics
+    """
+    # Force GC to get accurate counts
+    gc.collect()
+
+    # Get memory info
+    mem_info = _process.memory_info()
+
+    # Count all objects
+    all_objects = gc.get_objects()
+    total_objects = len(all_objects)
+
+    # Count Azure SDK objects
+    azure_objects = [obj for obj in all_objects if "azure" in type(obj).__module__.lower()]
+    azure_object_count = len(azure_objects)
+
+    # Count Speech SDK objects specifically
+    speech_objects = [obj for obj in all_objects if "speech" in type(obj).__module__.lower()]
+    speech_object_count = len(speech_objects)
+
+    # Get GC generation counts
+    gc_counts = gc.get_count()
+
+    return {
+        "label": label,
+        "rss_mb": round(mem_info.rss / (1024 * 1024), 2),
+        "vms_mb": round(mem_info.vms / (1024 * 1024), 2),
+        "total_objects": total_objects,
+        "azure_sdk_objects": azure_object_count,
+        "speech_sdk_objects": speech_object_count,
+        "gc_generation_0": gc_counts[0],
+        "gc_generation_1": gc_counts[1],
+        "gc_generation_2": gc_counts[2],
+    }
+
+
+def compare_memory_snapshots(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """
+    Compare two memory snapshots and calculate deltas.
+
+    Parameters
+    ----------
+    before : dict
+        Snapshot taken before operation
+    after : dict
+        Snapshot taken after operation
+
+    Returns
+    -------
+    dict
+        Comparison showing memory increase/decrease
+    """
+    return {
+        "before_label": before.get("label", ""),
+        "after_label": after.get("label", ""),
+        "rss_delta_mb": round(after["rss_mb"] - before["rss_mb"], 2),
+        "objects_delta": after["total_objects"] - before["total_objects"],
+        "azure_sdk_objects_delta": after["azure_sdk_objects"] - before["azure_sdk_objects"],
+        "speech_sdk_objects_delta": after["speech_sdk_objects"] - before["speech_sdk_objects"],
+        "before_rss_mb": before["rss_mb"],
+        "after_rss_mb": after["rss_mb"],
+        "retention_pct": round((after["rss_mb"] / before["rss_mb"] - 1) * 100, 1) if before["rss_mb"] > 0 else 0,
+    }
