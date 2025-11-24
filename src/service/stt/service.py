@@ -168,6 +168,7 @@ class TranscriptionService:
             transcriber = None
             auto_detect_config = None
             credential = None
+            connection = None
 
             try:
                 # Get token: use environment variable if available (K8s), otherwise create fresh credential
@@ -226,13 +227,18 @@ class TranscriptionService:
                         audio_config=audio_config,
                     )
 
+                # Get connection handle for explicit network cleanup
+                from azure.cognitiveservices.speech import Connection
+
+                connection = Connection.from_recognizer(transcriber)
+
                 # Callback state
                 segments = []
                 detected_language = azure_language or "en-US"
                 done = False
 
                 def on_transcribed(evt):
-                    nonlocal detected_language
+                    nonlocal detected_language, segments
                     if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech and evt.result.text:
                         # Extract language
                         if evt.result.properties:
@@ -308,19 +314,36 @@ class TranscriptionService:
                 # These objects hold internal buffers, audio streams, and network connections
                 short_trace_id = trace_id[:8]
 
+                # Close network connection first (releases TCP sockets and buffers)
+                if connection is not None:
+                    try:
+                        connection.close()
+                        connection.connected.disconnect_all()
+                        connection.disconnected.disconnect_all()
+                        logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
+                    except Exception as e:
+                        logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
+
                 if transcriber is not None:
                     try:
                         # Ensure transcription is stopped
                         transcriber.stop_transcribing_async().get()
 
-                        # Disconnect all event handlers to break circular references
+                        # Disconnect ALL event handlers to break circular references
+                        # ConversationTranscriber-specific events
                         transcriber.transcribed.disconnect_all()
-                        transcriber.session_stopped.disconnect_all()
+                        transcriber.transcribing.disconnect_all()
                         transcriber.canceled.disconnect_all()
 
-                        logger.debug(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
+                        # Recognizer base class events (inherited)
+                        transcriber.session_started.disconnect_all()
+                        transcriber.session_stopped.disconnect_all()
+                        transcriber.speech_start_detected.disconnect_all()
+                        transcriber.speech_end_detected.disconnect_all()
+
+                        logger.info(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
                     except Exception as e:
-                        logger.warning(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
+                        logger.error(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
 
                 # Explicitly delete callback functions to break closures
                 try:
@@ -329,13 +352,21 @@ class TranscriptionService:
                 except (NameError, UnboundLocalError):
                     pass  # Callbacks not created (early error)
 
+                # Delete local variables that might hold references
+                try:
+                    del segments
+                    del done
+                    del detected_language
+                except (NameError, UnboundLocalError):
+                    pass
+
                 # Close credential to release HTTP client and connection pool
                 if credential is not None:
                     try:
                         credential.close()
-                        logger.debug(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
+                        logger.info(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
                     except Exception as e:
-                        logger.warning(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
+                        logger.error(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
 
                 # Explicitly delete SDK objects to release resources immediately
                 # This helps Python's garbage collector reclaim memory faster
@@ -344,6 +375,16 @@ class TranscriptionService:
                 del speech_config
                 del auto_detect_config
                 del credential
+                del connection
+
+                # Clear property collections that may hold C++ references
+                try:
+                    if speech_config is not None and hasattr(speech_config, "_properties"):
+                        del speech_config._properties
+                    if transcriber is not None and hasattr(transcriber, "_properties"):
+                        del transcriber._properties
+                except (AttributeError, NameError):
+                    pass
 
                 # Force immediate GC to release native resources
                 gc.collect()
