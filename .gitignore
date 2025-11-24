@@ -309,9 +309,6 @@ samples/test-clean/
 samples/audio-files.json
 samples/*.tar.gz
 
-# k6 load test reports
-reports/
-
 # Run details
 runs/
 

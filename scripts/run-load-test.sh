@@ -115,8 +115,8 @@ if [ "${WEB_DASHBOARD_ENABLED}" = "true" ] || [ "${WEB_DASHBOARD_ENABLED}" = "1"
         export K6_WEB_DASHBOARD_EXPORT="${REPORT_FILE}"
         
         echo "✓ Web dashboard enabled"
-        echo "  Dashboard will be available at: http://127.0.0.1:5665"
-        echo "  Report will be saved to: ${REPORT_FILE}"
+        echo "  Live dashboard: http://127.0.0.1:5665 (optional - you don't need to open it)"
+        echo "  HTML report will be saved to: ${REPORT_FILE}"
         echo ""
     else
         echo "⚠ Web dashboard requires k6 v0.47.0 or later (you have $K6_VERSION)"
