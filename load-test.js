@@ -282,6 +282,10 @@ export const options = {
   
   // Disable default thresholds for cleaner output
   summaryTrendStats: ['min', 'avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
+  
+  // Disable HTTP connection reuse to test load balancing across pods
+  // Each request will create a new connection, allowing proper distribution
+  noConnectionReuse: true,
 };
 
 // =============================================================================
