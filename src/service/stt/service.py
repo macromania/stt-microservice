@@ -61,8 +61,6 @@ class TranscriptionService:
         # Speech SDK configuration
         self.speech_region = config.stt_azure_speech_region
         self.resource_name = config.stt_azure_speech_resource_name
-        self.sdk_warn_threshold = config.speech_sdk_object_warn_threshold
-        self.sdk_error_threshold = config.speech_sdk_object_error_threshold
 
         if not self.speech_region:
             raise ValueError("Azure Speech region not configured. Set STT_AZURE_SPEECH_REGION")
@@ -189,18 +187,9 @@ class TranscriptionService:
                     speech_config = speechsdk.SpeechConfig(region=self.speech_region)
                     speech_config.authorization_token = token
 
-                # Configure Speech SDK memory tracking
-                # Warning threshold: logs warning with object dump when exceeded
-                speech_config.set_property_by_name("SPEECH-ObjectCountWarnThreshold", str(self.sdk_warn_threshold))
-                # Error threshold: prevents new recognizer creation when exceeded
-                speech_config.set_property_by_name("SPEECH-ObjectCountErrorThreshold", str(self.sdk_error_threshold))
-
                 # Optional: Enable SDK file logging for debugging (disabled by default to reduce I/O)
                 # Uncomment to enable per-request logging to /tmp/speech-sdk-{trace_id}.log
                 # speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-sdk-{trace_id}.log")
-
-                short_trace_id = trace_id[:8]
-                logger.info(f"[{short_trace_id}] Speech SDK memory tracking enabled: warn={self.sdk_warn_threshold}, error={self.sdk_error_threshold}", extra={"trace_id": trace_id})
 
                 audio_config = speechsdk.audio.AudioConfig(filename=audio_file_path)
 
