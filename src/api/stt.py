@@ -63,6 +63,7 @@ stt_translation_time = Histogram(
 )
 
 
+@lru_cache
 def get_speech_service() -> TranscriptionService:
     """
     Get cached TranscriptionServiceV2 instance (singleton).
@@ -249,3 +250,7 @@ async def create_transcription(
                 trace_id = get_trace_id()
                 short_trace_id = trace_id[:8]
                 logger.warning(f"[{short_trace_id}] Failed to cleanup temp file: {e}", extra={"trace_id": trace_id})
+
+        # Force garbage collection after heavy operation
+        import gc
+        gc.collect()
