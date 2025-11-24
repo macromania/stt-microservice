@@ -8,6 +8,7 @@ import tempfile
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from prometheus_client import Counter, Histogram, Gauge
 
 from src.core.config import get_settings
 from src.core.exception import AudioFileSizeError, AudioFormatError
@@ -29,6 +30,37 @@ ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".webm", 
 
 # Maximum file size: 100MB
 MAX_FILE_SIZE = settings.stt_max_file_size_mb * 1024 * 1024
+
+# Custom STT Prometheus Metrics
+stt_transcriptions_total = Counter(
+    'stt_transcriptions_total',
+    'Total number of transcription requests',
+    ['status', 'language']
+)
+
+stt_audio_duration_seconds = Histogram(
+    'stt_audio_duration_seconds',
+    'Duration of audio files processed in seconds',
+    buckets=[5, 10, 30, 60, 120, 300, 600, 1800]  # 5s to 30min
+)
+
+stt_transcription_confidence = Gauge(
+    'stt_transcription_confidence',
+    'Average confidence score of transcriptions',
+    ['language']
+)
+
+stt_transcription_time = Histogram(
+    'stt_transcription_time_seconds',
+    'Time spent on transcription in seconds',
+    buckets=[1, 2, 5, 10, 20, 30, 60]
+)
+
+stt_translation_time = Histogram(
+    'stt_translation_time_seconds',
+    'Time spent on translation in seconds',
+    buckets=[1, 2, 5, 10, 20, 30, 60]
+)
 
 
 @lru_cache
@@ -161,6 +193,13 @@ async def create_transcription(
             trace_id=trace_id,
         )
 
+        # Record metrics
+        stt_transcriptions_total.labels(status='success', language=result.original_language).inc()
+        stt_audio_duration_seconds.observe(result.audio_duration_seconds)
+        stt_transcription_confidence.labels(language=result.original_language).set(result.confidence_average)
+        stt_transcription_time.observe(result.transcription_time_seconds)
+        stt_translation_time.observe(result.translation_time_seconds)
+
         logger.info(f"[{short_trace_id}] V2 complete: {len(result.segments)} segments, {result.original_language} → en", extra={"trace_id": trace_id})
         return result
 
@@ -170,6 +209,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Audio size error: {e}", extra={"trace_id": trace_id})
+        stt_transcriptions_total.labels(status='error_size', language='unknown').inc()
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=str(e),
@@ -178,6 +218,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Audio format error: {e}", extra={"trace_id": trace_id})
+        stt_transcriptions_total.labels(status='error_format', language='unknown').inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -186,6 +227,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] Validation error: {e}", extra={"trace_id": trace_id})
+        stt_transcriptions_total.labels(status='error_validation', language='unknown').inc()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
@@ -194,6 +236,7 @@ async def create_transcription(
         trace_id = get_trace_id()
         short_trace_id = trace_id[:8]
         logger.error(f"[{short_trace_id}] V2 processing failed: {e}", exc_info=True, extra={"trace_id": trace_id})
+        stt_transcriptions_total.labels(status='error_processing', language='unknown').inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Processing failed: {str(e)}",
