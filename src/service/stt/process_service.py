@@ -67,16 +67,6 @@ class ProcessIsolatedTranscriptionService:
 
         logger.info(f"ProcessIsolatedTranscriptionService initialized: pool_size={self.pool_size}, timeout={self.timeout}s")
 
-    def __del__(self):
-        """Clean up process pool on service deletion."""
-        try:
-            if hasattr(self, "pool") and self.pool is not None:
-                self.pool.close()
-                self.pool.join()
-                logger.info("Process pool closed and joined")
-        except Exception as e:
-            logger.error(f"Error cleaning up process pool: {e}")
-
     async def process_audio(
         self,
         audio_file_path: str,
