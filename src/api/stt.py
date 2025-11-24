@@ -63,7 +63,6 @@ stt_translation_time = Histogram(
 )
 
 
-@lru_cache
 def get_speech_service() -> TranscriptionService:
     """
     Get cached TranscriptionServiceV2 instance (singleton).
