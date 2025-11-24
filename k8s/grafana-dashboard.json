@@ -914,6 +914,36 @@
                                 }
                             }
                         ]
+                    },
+                    {
+                        "matcher": {
+                            "id": "byRegexp",
+                            "options": "/.*Limit.*/"
+                        },
+                        "properties": [
+                            {
+                                "id": "custom.lineStyle",
+                                "value": {
+                                    "dash": [10, 10],
+                                    "fill": "dash"
+                                }
+                            },
+                            {
+                                "id": "custom.lineWidth",
+                                "value": 2
+                            },
+                            {
+                                "id": "color",
+                                "value": {
+                                    "mode": "fixed",
+                                    "fixedColor": "red"
+                                }
+                            },
+                            {
+                                "id": "custom.fillOpacity",
+                                "value": 0
+                            }
+                        ]
                     }
                 ]
             },
@@ -946,7 +976,7 @@
                         "type": "prometheus",
                         "uid": "${datasource}"
                     },
-                    "expr": "container_memory_working_set_bytes{namespace=\"default\",pod=~\"stt-service.*\",container=\"stt-service\"}",
+                    "expr": "sum(process_resident_memory_bytes{service=~\"stt-service.*\"}) by (pod)",
                     "legendFormat": "Memory: {{pod}}",
                     "refId": "A"
                 },
@@ -955,9 +985,27 @@
                         "type": "prometheus",
                         "uid": "${datasource}"
                     },
-                    "expr": "rate(container_cpu_usage_seconds_total{namespace=\"default\",pod=~\"stt-service.*\",container=\"stt-service\"}[5m])",
+                    "expr": "rate(process_cpu_seconds_total{service=~\"stt-service.*\"}[5m])",
                     "legendFormat": "CPU: {{pod}}",
                     "refId": "B"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "expr": "2147483648",
+                    "legendFormat": "Memory Limit (2Gi)",
+                    "refId": "C"
+                },
+                {
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${datasource}"
+                    },
+                    "expr": "1",
+                    "legendFormat": "CPU Limit (1 core)",
+                    "refId": "D"
                 }
             ],
             "title": "Resource Usage vs Limits",
