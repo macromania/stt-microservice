@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     stt_max_file_size_mb: int = Field(default=100, description="Maximum audio file size for STT in MB", alias="STT_MAX_FILE_SIZE_MB")
     stt_max_duration_minutes: int = Field(default=120, description="Maximum audio duration for STT in minutes", alias="STT_MAX_DURATION_MINUTES")
 
+    # Process isolation settings
+    process_pool_size: int = Field(default=4, description="Number of worker processes for process-isolated transcription", alias="PROCESS_POOL_SIZE")
+    process_timeout: int = Field(default=300, description="Timeout in seconds per transcription process", alias="PROCESS_TIMEOUT")
+
 
 @lru_cache
 def get_settings() -> Settings:
