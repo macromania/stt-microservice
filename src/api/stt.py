@@ -186,12 +186,14 @@ async def create_transcription(
             # Ensure all data is flushed to disk before closing (non-blocking)
             await asyncio.to_thread(temp_file.flush)
             temp_file_path = temp_file.name
-            del temp_file  # Explicit cleanup before using path
-
-            # Final GC after file upload completes
-            gc.collect()
         finally:
             await asyncio.to_thread(temp_file.close)
+
+        # Explicitly dereference temp_file object after it's closed
+        del temp_file
+
+        # Final GC after file upload completes (after file is safely closed)
+        gc.collect()
 
         # Get trace ID once for entire request
         trace_id = get_trace_id()
