@@ -215,13 +215,22 @@ def get_memory_snapshot(label: str = "") -> dict[str, Any]:
     all_objects = gc.get_objects()
     total_objects = len(all_objects)
 
-    # Count Azure SDK objects
-    azure_objects = [obj for obj in all_objects if "azure" in type(obj).__module__.lower()]
-    azure_object_count = len(azure_objects)
+    # Count Azure SDK objects (safely handle objects without __module__)
+    azure_object_count = 0
+    speech_object_count = 0
 
-    # Count Speech SDK objects specifically
-    speech_objects = [obj for obj in all_objects if "speech" in type(obj).__module__.lower()]
-    speech_object_count = len(speech_objects)
+    for obj in all_objects:
+        try:
+            module = type(obj).__module__
+            if isinstance(module, str):
+                module_lower = module.lower()
+                if "azure" in module_lower:
+                    azure_object_count += 1
+                if "speech" in module_lower:
+                    speech_object_count += 1
+        except (AttributeError, TypeError):
+            # Skip objects that don't have a proper __module__ attribute
+            continue
 
     # Get GC generation counts
     gc_counts = gc.get_count()
