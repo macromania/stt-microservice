@@ -41,7 +41,7 @@ teardown-local-cluster: ## Delete Minikube cluster and all resources
 local-grafana: ## Port-forward Grafana to localhost:3000 (Ctrl+C to stop)
 	@echo "Opening Grafana at http://localhost:3000"
 	@echo "Username: admin"
-	@echo "Password: prom-operator"
+	@echo "Password: $$(kubectl get secret -n default kube-prometheus-stack-grafana -o jsonpath=\"{.data.admin-password}\" | base64 --decode)"
 	@kubectl port-forward -n default svc/kube-prometheus-stack-grafana 3000:80
 
 local-prometheus: ## Port-forward Prometheus to localhost:9090 (Ctrl+C to stop)
