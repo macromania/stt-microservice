@@ -185,14 +185,18 @@ class FastTranscriptionService:
         # Build request definition
         definition = {"diarization": {"maxSpeakers": 10, "enabled": True}}
 
-        # Add locales if language specified
+        # Add locales based on language parameter
         if azure_language:
+            # Known language specified - use it for better accuracy
             definition["locales"] = [azure_language]
-            logger.debug(f"[{short_trace_id}] Using language: {azure_language}", extra={"trace_id": trace_id})
+            logger.debug(f"[{short_trace_id}] Using specified language: {azure_language}", extra={"trace_id": trace_id})
         else:
-            # Empty locales for multi-lingual auto-detection
-            definition["locales"] = []
-            logger.debug(f"[{short_trace_id}] Using multi-lingual auto-detection", extra={"trace_id": trace_id})
+            # Auto-detection mode: provide candidate locales for language identification
+            # Note: Multi-lingual mode (empty locales) doesn't support Arabic
+            # So we use language identification with multiple candidates instead
+            # Supports common languages including Arabic, English, and others
+            definition["locales"] = ["ar-AE", "ar-SA", "en-US", "en-GB", "fr-FR", "de-DE"]
+            logger.debug(f"[{short_trace_id}] Using language identification with candidate locales", extra={"trace_id": trace_id})
 
         # Prepare multipart form data
         url = f"{self.endpoint}?api-version={self.API_VERSION}"
