@@ -109,7 +109,7 @@ stt_load_test ✓ [======================================] 000/100 VUs  20m0s
   - memory: "2Gi"    # 2 Gigabytes of RAM
 - date: 2025-11-24 12:45:03 GST
 
-![Single Worker Pod - 3 Pod Cluster](images/single-worker-3-pods-100vu.png)
+![Single Worker Pod - 3 Pod Cluster](./images/single-worker-3-pods-100vu.png)
 
 ```bash
 
@@ -243,7 +243,7 @@ The devcontainer had **0% failures** because requests were processed more conser
   - memory: "4Gi"    # 4 Gigabytes of RAM
 - date: 2025-11-24 13:14:30 GST
 
-![Single Worker Pod 100 VUs](images/single-worker-pod-100vu.png)
+![Single Worker Pod 100 VUs](./images/single-worker-pod-100vu.png)
 
 ```bash
 
@@ -385,3 +385,215 @@ For CPU-intensive, single-threaded workloads like STT services:
 - 3 pods × 1 CPU (3 total CPUs) > 1 pod × 2 CPUs
 - Parallel processing across instances beats multi-core allocation to a single instance
 - Trade-off: Accept slightly more failures for dramatically higher throughput
+
+## Local Cluster - 1 Pod with Improved Azure SDK Disposal
+
+- 1 Pod
+- NodePort Service
+- Load Balanced Requests
+- requests:
+  - cpu: "1500m"     # 1.5 CPU cores
+  - memory: "3072Mi" # 3 GB (proportional to 4Gi limit)
+- limits:
+  - cpu: "2000m"     # 2 CPU cores
+  - memory: "4Gi"    # 4 Gigabytes of RAM
+- date: 2025-11-24 13:14:30 GST
+- Azure SDK object disposal implemented - 62c7c4b62d68c9553857882feeb1e0133769d250
+
+![Single Worker Pod with Improved SDK Disposal 100 VUs](./images/single-workder-pod-100vu-sdk-object-disposal.png)
+
+```bash
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=47.43s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 19255   16.014222/s
+    checks_succeeded...: 100.00% 19255 out of 19255
+    checks_failed......: 0.00%   0 out of 19255
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=257.721861 med=196.326172 p(90)=516.326172 p(95)=566.482422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 3854    3.205339/s
+    segment_count..................: min=0         avg=1.069073   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=140.0543   med=117        p(90)=272        p(95)=291        p(99)=414        max=414       
+    transcription_success..........: 100.00% 3851 out of 3851
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=2.15s     avg=17.38s     med=13.32s     p(90)=38.38s     p(95)=47.43s     p(99)=1m4s       max=1m19s     
+      { expected_response:true }...: min=2.15s     avg=17.38s     med=13.32s     p(90)=38.38s     p(95)=47.43s     p(99)=1m4s       max=1m19s     
+    http_req_failed................: 0.00%   0 out of 3851
+    http_reqs......................: 3851    3.202844/s
+
+    EXECUTION
+    iteration_duration.............: min=3.28s     avg=19.62s     med=15.46s     p(90)=40.48s     p(95)=49.85s     p(99)=1m7s       max=1m21s     
+    iterations.....................: 3849    3.201181/s
+    vus............................: 1       min=0            max=100
+    vus_max........................: 100     min=100          max=100
+
+    NETWORK
+    data_received..................: 3.5 MB  2.9 kB/s
+    data_sent......................: 1.0 GB  848 kB/s
+
+running (20m02.4s), 000/100 VUs, 3849 complete and 5 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  20m0s
+```
+
+## Local Cluster - 1 Pod with Improved Azure SDK Disposal and Removed Service Cache
+
+- 1 Pod
+- NodePort Service
+- Load Balanced Requests
+- requests:
+  - cpu: "1500m"     # 1.5 CPU cores
+  - memory: "3072Mi" # 3 GB (proportional to 4Gi limit)
+- limits:
+  - cpu: "2000m"     # 2 CPU cores
+  - memory: "4Gi"    # 4 Gigabytes of RAM
+- date: 2025-11-24 13:14:30 GST
+- Azure SDK object disposal implemented - 62c7c4b62d68c9553857882feeb1e0133769d250
+- Service cache disabled - 17feb1583d27aafcc3afdea50340dd91df94201c
+- Increased overall memory usage and doesn't have a significant impact on latency or throughput
+
+![No Service Cache Single Worker Pod with Improved SDK Disposal 100 VUs](./images/single-workder-pod-100vu-sdk-object-no-service-cache.png)
+
+
+```bash
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=46.84s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 19435   16.166694/s
+    checks_succeeded...: 100.00% 19435 out of 19435
+    checks_failed......: 0.00%   0 out of 19435
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=257.852454 med=196.326172 p(90)=516.326172 p(95)=554.607422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 3889    3.235003/s
+    segment_count..................: min=0         avg=1.066118   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=140.557529 med=117        p(90)=272        p(95)=304        p(99)=414        max=414       
+    transcription_success..........: 100.00% 3887 out of 3887
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=2.15s     avg=17.25s     med=13.47s     p(90)=37.8s      p(95)=46.84s     p(99)=1m1s       max=1m11s     
+      { expected_response:true }...: min=2.15s     avg=17.25s     med=13.47s     p(90)=37.8s      p(95)=46.84s     p(99)=1m1s       max=1m11s     
+    http_req_failed................: 0.00%   0 out of 3887
+    http_reqs......................: 3887    3.233339/s
+
+    EXECUTION
+    iteration_duration.............: min=3.35s     avg=19.51s     med=15.7s      p(90)=40.28s     p(95)=49.31s     p(99)=1m4s       max=1m14s     
+    iterations.....................: 3886    3.232507/s
+    vus............................: 1       min=0            max=100
+    vus_max........................: 100     min=100          max=100
+
+    NETWORK
+    data_received..................: 3.5 MB  2.9 kB/s
+    data_sent......................: 1.0 GB  856 kB/s
+
+running (20m02.2s), 000/100 VUs, 3886 complete and 3 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  20m0s
+```
+
+## Local Cluster - 1 Pod with Improved Azure SDK Disposal and Forced Garbage Collection
+
+- 1 Pod
+- NodePort Service
+- Load Balanced Requests
+- requests:
+  - cpu: "1500m"     # 1.5 CPU cores
+  - memory: "3072Mi" # 3 GB (proportional to 4Gi limit)
+- limits:
+  - cpu: "2000m"     # 2 CPU cores
+  - memory: "4Gi"    # 4 Gigabytes of RAM
+- date: 2025-11-24 13:14:30 GST
+- Azure SDK object disposal implemented - 62c7c4b62d68c9553857882feeb1e0133769d250
+- Service cache enabled and garbage collection is forced - 012a1012651b7a92b164dc62202a88b50aa1cdd1
+- Reduced some memoryy
+
+![Forced Garbage Collection Single Worker Pod with Improved SDK Disposal 100 VUs](./images/single-worker-pod-100vu-force-gc.png)
+
+```bash
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=46.31s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 19150   15.844205/s
+    checks_succeeded...: 100.00% 19150 out of 19150
+    checks_failed......: 0.00%   0 out of 19150
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=250.514587 med=195.857422 p(90)=516.326172 p(95)=554.607422 p(99)=703.201172 max=729.296875
+    audio_files_used...............: 3835    3.172978/s
+    segment_count..................: min=0         avg=1.065274   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=136.689592 med=111        p(90)=268        p(95)=304        p(99)=369        max=414       
+    transcription_success..........: 100.00% 3830 out of 3830
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.69s     avg=17.41s     med=13.73s     p(90)=37.6s      p(95)=46.31s     p(99)=1m4s       max=1m19s     
+      { expected_response:true }...: min=1.69s     avg=17.41s     med=13.73s     p(90)=37.6s      p(95)=46.31s     p(99)=1m4s       max=1m19s     
+    http_req_failed................: 0.00%   0 out of 3830
+    http_reqs......................: 3830    3.168841/s
+
+    EXECUTION
+    iteration_duration.............: min=3.35s     avg=19.72s     med=15.84s     p(90)=40.14s     p(95)=49.22s     p(99)=1m7s       max=1m22s     
+    iterations.....................: 3829    3.168014/s
+    vus............................: 1       min=0            max=100
+    vus_max........................: 100     min=100          max=100
+
+    NETWORK
+    data_received..................: 3.4 MB  2.8 kB/s
+    data_sent......................: 986 MB  816 kB/s
+
+running (20m08.6s), 000/100 VUs, 3829 complete and 6 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  20m0s
+```
