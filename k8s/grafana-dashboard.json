@@ -997,8 +997,8 @@
                         "type": "prometheus",
                         "uid": "${datasource}"
                     },
-                    "expr": "2147483648",
-                    "legendFormat": "Memory Limit (2Gi)",
+                    "expr": "kube_pod_container_resource_limits{resource=\"memory\", pod=~\"stt-service.*\"}",
+                    "legendFormat": "Memory Limit",
                     "refId": "C"
                 },
                 {
@@ -1006,8 +1006,8 @@
                         "type": "prometheus",
                         "uid": "${datasource}"
                     },
-                    "expr": "1",
-                    "legendFormat": "CPU Limit (1 core)",
+                    "expr": "kube_pod_container_resource_limits{resource=\"cpu\", pod=~\"stt-service.*\"}",
+                    "legendFormat": "CPU Limit",
                     "refId": "D"
                 }
             ],
