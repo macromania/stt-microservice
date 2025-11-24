@@ -65,8 +65,8 @@ class TranscriptionService:
             If True, enables memory profiling for debugging (adds overhead)
         """
         settings = get_settings()
-        self.speech_region = settings.azure_speech_region
-        self.resource_name = settings.azure_speech_resource_name
+        self.speech_region = settings.stt_azure_speech_region
+        self.resource_name = settings.stt_azure_speech_resource_name
         self.enable_profiling = enable_profiling
 
     async def process_audio(self, audio_file_path: str, language: str = "auto", trace_id: str | None = None) -> TranscriptionResponse:
