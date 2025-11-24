@@ -346,3 +346,6 @@ compliance-report.md
 !.env.azure.example
 !.env.github.example
 !.env.k6.example
+
+# k6 load testing output
+reports/

@@ -313,12 +313,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"stt-service.*\", container!=\"\"}[5m])) by (pod)",
+          "expr": "rate(process_cpu_seconds_total{job=\"stt-service\"}[5m])",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "CPU Usage",
+      "title": "CPU Usage (Process)",
       "type": "timeseries"
     },
     {
@@ -412,12 +412,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(container_memory_working_set_bytes{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
+          "expr": "process_resident_memory_bytes{job=\"stt-service\"}",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
       ],
-      "title": "Memory Usage",
+      "title": "Memory Usage (Process)",
       "type": "timeseries"
     },
     {
