@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime
 import gc
 import logging
-import threading
+from pathlib import Path
 import time
 from typing import Any
 from uuid import uuid4
@@ -170,6 +170,7 @@ class TranscriptionService:
             try:
                 # Get token: use environment variable if available (K8s), otherwise create fresh credential
                 import os
+
                 token = os.getenv("AZURE_ACCESS_TOKEN")
                 if not token:
                     # Create credential per request to avoid memory leaks from cached credential state
@@ -259,6 +260,10 @@ class TranscriptionService:
                 logger.info(f"[{short_trace_id}] Starting transcription...", extra={"trace_id": trace_id})
                 transcriber.start_transcribing_async()
 
+                # Delete temp file immediately after SDK opens it (aggressive memory cleanup)
+                # File descriptor is already open, so SDK can still read. Inode freed immediately.
+                Path(audio_file_path).unlink(missing_ok=True)
+
                 # Wait for completion
                 timeout = 300
                 elapsed = 0
@@ -313,46 +318,6 @@ class TranscriptionService:
                 # Force immediate GC to release native resources
                 gc.collect()
 
-        # Run in a fresh thread (not thread pool) to ensure complete cleanup
-        # ThreadPoolExecutor reuses threads which can keep SDK objects alive in stack frames
-        # Fresh threads die completely after request, releasing all memory
-        result_container = {}      # Holds successful result (threads can't return directly)
-        exception_container = {}   # Holds any exception from worker thread
-
-        def _thread_wrapper():
-            """Wrapper to capture result/exception from sync work."""
-            try:
-                result_container['result'] = _sync_transcribe()
-            except Exception as e:
-                exception_container['error'] = e
-
-        # Create brand new thread (not from pool) - will die after request
-        thread = threading.Thread(target=_thread_wrapper, daemon=False)
-        thread.start()
-
-        # Wait for thread to complete (async-safe blocking)
-        # timeout = 300s (transcription) + 10s (cleanup buffer)
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: thread.join(timeout=310)
-        )
-
-        # Check if thread timed out
-        if thread.is_alive():
-            logger.error(f"[{trace_id[:8]}] Thread timeout - thread still running", extra={"trace_id": trace_id})
-            raise TimeoutError("Transcription thread timeout")
-
-        # Re-raise any exception from worker thread
-        if 'error' in exception_container:
-            raise exception_container['error']
-
-        # Extract result and explicitly clean up containers
-        result = result_container['result']
-        del result_container
-        del exception_container
-        del thread
-
-        # Aggressive GC to clean up thread-local storage immediately
-        gc.collect()
-
-        return result
+        # Run synchronous Speech SDK work in a separate thread
+        # asyncio.to_thread runs in thread pool and handles all the complexity
+        return await asyncio.to_thread(_sync_transcribe)
