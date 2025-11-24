@@ -160,7 +160,11 @@ async def create_transcription(
         # Use NamedTemporaryFile with mode='wb' for explicit binary write control
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, mode="wb")
         try:
-            while chunk := await audio_file.read(chunk_size):
+            while True:
+                chunk = await audio_file.read(chunk_size)
+                if not chunk:
+                    break
+
                 bytes_written += len(chunk)
                 if bytes_written > MAX_FILE_SIZE:
                     # Cleanup partial file before raising
@@ -170,12 +174,22 @@ async def create_transcription(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"File too large. Maximum: {MAX_FILE_SIZE / 1024 / 1024:.0f}MB",
                     )
+
                 # Offload blocking write to thread pool to avoid blocking event loop
                 await asyncio.to_thread(temp_file.write, chunk)
+                del chunk  # Explicitly dereference chunk buffer immediately
+
+                # Aggressive GC every 128KB (16 chunks) for small files
+                if bytes_written % (128 * 1024) < chunk_size:
+                    gc.collect(0)  # Only collect generation 0 (fastest)
 
             # Ensure all data is flushed to disk before closing (non-blocking)
             await asyncio.to_thread(temp_file.flush)
             temp_file_path = temp_file.name
+            del temp_file  # Explicit cleanup before using path
+
+            # Final GC after file upload completes
+            gc.collect()
         finally:
             await asyncio.to_thread(temp_file.close)
 

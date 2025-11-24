@@ -346,5 +346,13 @@ class TranscriptionService:
         if 'error' in exception_container:
             raise exception_container['error']
 
-        # Return successful result
-        return result_container['result']
+        # Extract result and explicitly clean up containers
+        result = result_container['result']
+        del result_container
+        del exception_container
+        del thread
+
+        # Aggressive GC to clean up thread-local storage immediately
+        gc.collect()
+
+        return result
