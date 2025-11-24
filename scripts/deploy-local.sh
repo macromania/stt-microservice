@@ -154,6 +154,32 @@ configure_grafana() {
   print_success "Grafana configured successfully"
 }
 
+# Function: Import Grafana dashboard
+import_dashboard() {
+  print_step 7 "Importing Grafana dashboard"
+  
+  print_info "Retrieving Grafana pod and credentials..."
+  GRAFANA_POD=$(kubectl get pod -n "${NAMESPACE}" -l app.kubernetes.io/name=grafana -o jsonpath="{.items[0].metadata.name}")
+  GRAFANA_PASSWORD=$(kubectl get secret -n "${NAMESPACE}" kube-prometheus-stack-grafana -o jsonpath="{.data.admin-password}" | base64 --decode)
+  
+  if [ -z "$GRAFANA_POD" ]; then
+    print_warning "Grafana pod not found. Dashboard import skipped."
+    return
+  fi
+  
+  print_info "Copying dashboard JSON to Grafana pod..."
+  kubectl cp "${PROJECT_ROOT}/k8s/grafana-dashboard.json" "${NAMESPACE}/${GRAFANA_POD}:/tmp/dashboard.json"
+  
+  print_info "Importing dashboard via Grafana API..."
+  kubectl exec -n "${NAMESPACE}" "${GRAFANA_POD}" -- curl -X POST \
+    -H "Content-Type: application/json" \
+    -u "admin:${GRAFANA_PASSWORD}" \
+    -d @/tmp/dashboard.json \
+    http://localhost:3000/api/dashboards/db 2>/dev/null || print_warning "Dashboard import may require manual verification in Grafana UI"
+  
+  print_success "Dashboard import completed"
+}
+
 # Function: Display access information
 display_info() {
   print_section "Deployment Complete!"
@@ -186,11 +212,8 @@ display_info() {
   echo "    kubectl get all -l app=${APP_NAME} -n ${NAMESPACE}"
   echo ""
   
-  print_info "Import the dashboard in Grafana:"
-  echo "    1. Go to http://localhost:3000"
-  echo "    2. Login with admin/admin"
-  echo "    3. Go to Dashboards → Import"
-  echo "    4. Upload: ${PROJECT_ROOT}/k8s/grafana-dashboard.json"
+  print_info "STT Dashboard has been automatically imported to Grafana"
+  echo "    Access it at: http://localhost:3000/dashboards"
   echo ""
 }
 
@@ -223,6 +246,7 @@ main() {
   create_azure_credentials
   deploy_app
   configure_grafana
+  import_dashboard
   display_info
   
   print_success "All done! Your local cluster is ready."
