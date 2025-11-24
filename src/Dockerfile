@@ -32,12 +32,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # This ensures that Python output is sent straight to terminal (e.g. logs).
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies including Azure CLI for DefaultAzureCredential
+# Install system dependencies including Azure CLI for DefaultAzureCredential and jemalloc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
-    lsb-release && \
+    lsb-release \
+    libjemalloc2 && \
     # Install Azure CLI
     mkdir -p /etc/apt/keyrings && \
     curl -sLS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && \
@@ -53,6 +54,13 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy only the application code
 COPY src/ /app/src/
+
+# Configure jemalloc for aggressive memory purging
+# background_thread:true - Enable background thread for active memory purging
+# dirty_decay_ms:1000 - Purge freed (dirty) pages every ~1 second (50% half-life)
+# muzzy_decay_ms:1000 - Purge MADV_FREE pages every ~1 second
+ENV MALLOC_CONF="background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 
 # Expose the port the app will run on
 EXPOSE 8000
