@@ -25,9 +25,16 @@ spec:
         env:
         - name: APP_VERSION
           value: "0.1.0"
+        # Enable Azure CLI authentication for local development
+        - name: AZURE_CONFIG_DIR
+          value: /azure
         envFrom:
         - configMapRef:
             name: stt-config
+        volumeMounts:
+        - name: azure-config
+          mountPath: /azure
+          readOnly: true
         resources:
           requests:
             cpu: "100m"
@@ -51,3 +58,8 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
+      volumes:
+      - name: azure-config
+        hostPath:
+          path: /Users/mahmutcanga/.azure
+          type: Directory
