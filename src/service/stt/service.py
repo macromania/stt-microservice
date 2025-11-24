@@ -160,8 +160,11 @@ class TranscriptionService:
         def _sync_transcribe() -> dict[str, Any]:
             """Synchronous transcription using Speech SDK callbacks."""
             try:
-                # Get token from cached credential (reuses credential from __init__)
-                token = self.credential.get_token("https://cognitiveservices.azure.com/.default").token
+                # Get token: use environment variable if available (K8s), otherwise use credential
+                import os
+                token = os.getenv("AZURE_ACCESS_TOKEN")
+                if not token:
+                    token = self.credential.get_token("https://cognitiveservices.azure.com/.default").token
 
                 if self.resource_name:
                     endpoint = f"https://{self.resource_name}.cognitiveservices.azure.com/"

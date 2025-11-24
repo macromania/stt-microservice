@@ -194,12 +194,33 @@ display_info() {
   echo ""
 }
 
+# Function: Create Azure credentials secret
+create_azure_credentials() {
+  print_step 4.5 "Creating Azure credentials for authentication"
+  
+  print_info "Retrieving Azure access token..."
+  if ! command -v az &> /dev/null; then
+    print_warning "Azure CLI not found. Skipping Azure credentials setup."
+    print_warning "Run 'make k8s-azure-auth' after deployment to configure authentication."
+    return
+  fi
+  
+  if ! az account show &>/dev/null; then
+    print_warning "Not logged into Azure CLI. Skipping Azure credentials setup."
+    print_warning "Run 'az login' then 'make k8s-azure-auth' to configure authentication."
+    return
+  fi
+  
+  "${SCRIPT_DIR}/create-k8s-azure-credentials.sh"
+}
+
 # Main execution
 main() {
   setup_minikube
   install_monitoring
   build_image
   create_configmap
+  create_azure_credentials
   deploy_app
   configure_grafana
   display_info

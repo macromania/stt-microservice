@@ -33,6 +33,9 @@ setup-local-cluster: ## Setup Minikube cluster with Prometheus and Grafana
 deploy-local: ## Deploy STT service to local Minikube cluster (full deployment)
 	@./scripts/deploy-local.sh
 
+k8s-azure-auth: ## Create/update Azure credentials secret for K8s (token expires in ~1hr)
+	@./scripts/create-k8s-azure-credentials.sh
+
 teardown-local-cluster: ## Delete Minikube cluster and all resources
 	@echo "Deleting Minikube cluster..."
 	@minikube delete -p stt-microservice
