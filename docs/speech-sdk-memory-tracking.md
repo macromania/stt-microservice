@@ -90,13 +90,13 @@ class Microsoft::CognitiveServices::Speech::Impl::ISpxRecognizer 0
 In `TranscriptionService.__init__()`:
 
 ```python
-# Enable SDK logging for memory tracking
-speechsdk.logging.set_log_level(speechsdk.logging.LogLevel.Info)
-
 # Store thresholds from config
 self.sdk_warn_threshold = config.speech_sdk_object_warn_threshold
 self.sdk_error_threshold = config.speech_sdk_object_error_threshold
 ```
+
+**Note:** The Python SDK does not have a `speechsdk.logging` module like C#/.NET.
+Logging is configured per-request on the `SpeechConfig` object (see below).
 
 ### Per-Request Configuration
 
@@ -106,7 +106,104 @@ In `_transcribe_async()` when creating `SpeechConfig`:
 # Configure memory tracking thresholds
 speech_config.set_property_by_name("SPEECH-ObjectCountWarnThreshold", str(self.sdk_warn_threshold))
 speech_config.set_property_by_name("SPEECH-ObjectCountErrorThreshold", str(self.sdk_error_threshold))
+
+# Optional: Enable SDK file logging for debugging (disabled by default)
+# Uncomment to enable per-request logging to /tmp/speech-sdk-{trace_id}.log
+# speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-sdk-{trace_id}.log")
 ```
+
+### SDK File Logging (Optional)
+
+The Speech SDK can write detailed logs to a file for debugging. This is **disabled by default**
+to reduce I/O overhead in production.
+
+**To enable per-request logging:**
+
+```python
+# Option 1: Property-based (works with all SDK versions)
+speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-sdk-{trace_id}.log")
+
+# Option 2: FileLogger (requires SDK 1.43.0+, global state)
+import azure.cognitiveservices.speech.diagnostics.logging as speechsdk_logging
+speechsdk_logging.FileLogger.start("/tmp/speech-sdk.log")
+# ... SDK operations ...
+speechsdk_logging.FileLogger.stop()
+```
+
+**Recommendation:** Use property-based logging per-request for better isolation.
+The `FileLogger` creates global state and all recognizers write to the same file.
+
+## Python SDK Logging Details
+
+### Available Logging Methods
+
+The Python Speech SDK supports multiple logging approaches:
+
+#### 1. Property-Based Logging (Recommended)
+
+**Pros:**
+
+- Per-request isolation (separate log file per request)
+- No global state
+- Works with all SDK versions
+- Simple to implement
+
+**Cons:**
+
+- Creates multiple log files
+- Each `SpeechConfig` needs configuration
+
+```python
+speech_config.set_property(speechsdk.PropertyId.Speech_LogFilename, f"/tmp/speech-{trace_id}.log")
+```
+
+#### 2. FileLogger (SDK 1.43.0+)
+
+**Pros:**
+
+- Single log file for all operations
+- Can enable/disable dynamically
+- Supports log filtering
+
+**Cons:**
+
+- Global state (all recognizers log to same file)
+- Interleaved logs from concurrent requests
+- Requires careful lifecycle management
+
+```python
+import azure.cognitiveservices.speech.diagnostics.logging as speechsdk_logging
+speechsdk_logging.FileLogger.start("/tmp/speech-sdk.log")
+```
+
+#### 3. MemoryLogger (SDK 1.43.0+)
+
+**Pros:**
+
+- No file I/O overhead
+- Dump on-demand (e.g., after errors)
+- 2MB ring buffer
+
+**Cons:**
+
+- Limited size (recent logs only)
+- Global state (shared across all recognizers)
+
+```python
+speechsdk_logging.MemoryLogger.start()
+# ... on error ...
+speechsdk_logging.MemoryLogger.dump("/tmp/error-dump.log")
+```
+
+### Our Implementation Choice
+
+**We use property-based logging (disabled by default)** because:
+
+- ✅ No global state complications
+- ✅ Request-scoped logs with trace IDs
+- ✅ Compatible with containerized environments
+- ✅ Can enable per-request for debugging
+- ✅ Memory thresholds are primary defense
 
 ## Monitoring
 
