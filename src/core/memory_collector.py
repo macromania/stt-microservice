@@ -28,7 +28,6 @@ async def collect_process_memory_metrics() -> None:
     initialized - it will simply skip collection until the service exists.
     """
     from src.api.stt import (
-        get_process_service,
         process_parent_memory_bytes,
         process_per_worker_memory_bytes,
         process_total_memory_bytes,
@@ -46,24 +45,22 @@ async def collect_process_memory_metrics() -> None:
 
     while True:
         try:
-            # Check if process service exists (lazy initialization)
-            if get_process_service.cache_info().currsize > 0:
-                # Initialize monitor if needed
-                if monitor is None:
-                    monitor = ProcessPoolMonitor()
-                    logger.info("Process memory monitor initialized")
+            # Initialize monitor on first run (always collect metrics)
+            if monitor is None:
+                monitor = ProcessPoolMonitor()
+                logger.info("Process memory monitor initialized")
 
-                # Collect memory stats
-                memory_stats = monitor.get_aggregate_memory_usage()
+            # Always collect memory stats (even if pool not initialized)
+            memory_stats = monitor.get_aggregate_memory_usage()
 
-                # Update Prometheus gauges
-                process_parent_memory_bytes.set(memory_stats["parent_rss_bytes"])
-                process_workers_memory_bytes.set(memory_stats["workers_rss_bytes"])
-                process_worker_count.set(memory_stats["worker_count"])
-                process_per_worker_memory_bytes.set(memory_stats["per_worker_avg_bytes"])
-                process_total_memory_bytes.set(memory_stats["total_rss_bytes"])
+            # Update Prometheus gauges
+            process_parent_memory_bytes.set(memory_stats["parent_rss_bytes"])
+            process_workers_memory_bytes.set(memory_stats["workers_rss_bytes"])
+            process_worker_count.set(memory_stats["worker_count"])
+            process_per_worker_memory_bytes.set(memory_stats["per_worker_avg_bytes"])
+            process_total_memory_bytes.set(memory_stats["total_rss_bytes"])
 
-                logger.debug(f"Memory stats: parent={memory_stats['parent_rss_bytes'] / 1024 / 1024:.1f}MB, workers={memory_stats['workers_rss_bytes'] / 1024 / 1024:.1f}MB, worker_count={memory_stats['worker_count']}")
+            logger.debug(f"Memory stats: parent={memory_stats['parent_rss_bytes'] / 1024 / 1024:.1f}MB, workers={memory_stats['workers_rss_bytes'] / 1024 / 1024:.1f}MB, worker_count={memory_stats['worker_count']}")
 
         except asyncio.CancelledError:
             logger.info("Process memory collector cancelled")
