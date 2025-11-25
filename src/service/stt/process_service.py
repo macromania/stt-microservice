@@ -250,22 +250,52 @@ class ProcessIsolatedTranscriptionService:
             "status": "healthy" if self.pool is not None else "unhealthy",
         }
 
-    def shutdown(self) -> None:
+    def shutdown(self, timeout: int = 30) -> None:
         """
         Gracefully shut down process pool.
 
         This method should be called on application shutdown
         to ensure all worker processes are properly terminated.
+
+        Parameters
+        ----------
+        timeout : int, optional
+            Maximum time to wait for workers to finish (default: 30s)
         """
+        import time
+
         try:
-            logger.info("Shutting down process pool...")
+            logger.info(f"Shutting down process pool (timeout={timeout}s)...")
+
+            # Stop accepting new work
             self.pool.close()
-            self.pool.join()  # join() doesn't accept timeout parameter
+
+            # Wait for workers with timeout
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                # Check if all workers are done (non-blocking)
+                # Pool._cache is internal but reliable way to check if work is pending
+                if not hasattr(self.pool, "_cache") or len(self.pool._cache) == 0:
+                    logger.info("All workers finished gracefully")
+                    break
+                time.sleep(0.5)
+            else:
+                # Timeout reached, force termination
+                logger.warning(f"Timeout reached ({timeout}s), terminating workers forcefully")
+                self.pool.terminate()
+                self.pool.join()
+                logger.info("Process pool terminated forcefully")
+                return
+
+            # All workers finished within timeout
+            self.pool.join()
             logger.info("Process pool shutdown complete")
+
         except Exception as e:
             logger.error(f"Error during pool shutdown: {e}")
             try:
                 self.pool.terminate()
-                logger.info("Process pool terminated forcefully")
+                self.pool.join()
+                logger.info("Process pool terminated forcefully after error")
             except Exception as term_error:
                 logger.error(f"Error terminating pool: {term_error}")

@@ -45,7 +45,9 @@ async def lifespan(app: FastAPI):
         if get_process_service.cache_info().currsize > 0:
             logger.info("Shutting down process-isolated transcription service...")
             service = get_process_service()
-            service.shutdown()
+            # Use 60s timeout to allow in-flight requests to complete
+            # This works with terminationGracePeriodSeconds=180 in k8s
+            service.shutdown(timeout=60)
             logger.info("Process pool shut down successfully")
     except (ImportError, AttributeError) as e:
         logger.debug(f"No process service to shutdown: {e}")
@@ -117,4 +119,29 @@ async def root():
         "name": "STT Microservice",
         "version": settings.app_version,
         "environment": settings.env,
+    }
+
+
+@app.get("/health")
+async def health():
+    """
+    Lightweight health check endpoint for Kubernetes probes.
+
+    This endpoint is intentionally simple and doesn't check dependencies
+    to avoid blocking during heavy load or when transcription is in progress.
+    """
+    return {"status": "healthy"}
+
+
+@app.get("/readiness")
+async def readiness():
+    """
+    Readiness check endpoint for Kubernetes.
+
+    Returns 200 if the service is ready to handle requests.
+    Can be extended to check dependencies (Azure, etc.) if needed.
+    """
+    return {
+        "status": "ready",
+        "version": settings.app_version,
     }

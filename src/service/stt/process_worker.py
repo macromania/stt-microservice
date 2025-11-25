@@ -8,6 +8,7 @@ transcription in complete memory isolation from the parent process.
 import logging
 import os
 import signal
+import sys
 import traceback
 from typing import Any
 
@@ -18,24 +19,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
 
 def _setup_signal_handlers(timeout: int) -> None:
     """
-    Set up signal handlers for timeout enforcement.
+    Set up signal handlers for timeout enforcement and graceful shutdown.
 
     Parameters
     ----------
     timeout : int
         Timeout in seconds after which SIGALRM will fire
     """
+    global _shutdown_requested
 
     def timeout_handler(signum, frame):
         logger.error(f"Process timeout after {timeout}s, raising TimeoutError")
         raise TimeoutError(f"Transcription exceeded timeout of {timeout} seconds")
 
-    # Set SIGALRM handler
+    def sigterm_handler(signum, frame):
+        """Handle SIGTERM for graceful shutdown during Kubernetes termination."""
+        global _shutdown_requested
+        _shutdown_requested = True
+        logger.warning("SIGTERM received, initiating graceful shutdown")
+        # Cancel timeout alarm if set
+        signal.alarm(0)
+        # Exit gracefully - let finally block handle cleanup
+        sys.exit(0)
+
+    # Set SIGALRM handler for timeout
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(timeout)
+
+    # Set SIGTERM handler for graceful Kubernetes shutdown
+    signal.signal(signal.SIGTERM, sigterm_handler)
+    # Also handle SIGINT (Ctrl+C) for consistency
+    signal.signal(signal.SIGINT, sigterm_handler)
 
 
 def transcribe_in_process(
@@ -143,6 +163,10 @@ def transcribe_in_process(
         # Cancel the alarm since we completed successfully
         signal.alarm(0)
 
+        # Restore default signal handlers
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
         return {
             "success": True,
             "data": {
@@ -179,6 +203,15 @@ def transcribe_in_process(
         }
 
     finally:
+        # Clean up signal handlers and alarm
+        try:
+            signal.alarm(0)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.signal(signal.SIGALRM, signal.SIG_DFL)
+        except Exception:
+            pass  # Best effort cleanup
+
         logger.info(
             f"[{short_trace_id}] Process worker exiting (PID: {os.getpid()})",
             extra={"trace_id": trace_id},

@@ -14,6 +14,8 @@ spec:
       labels:
         app: stt-service
     spec:
+      # Allow 3 minutes for graceful shutdown (transcriptions can take 60+ seconds)
+      terminationGracePeriodSeconds: 180
       containers:
       - name: stt-service
         image: stt-service:latest
@@ -38,19 +40,44 @@ spec:
           limits:
             cpu: "2000m"     # 2 CPU cores
             memory: "4Gi"    # 4 Gigabytes of RAM
-        livenessProbe:
+        # Lifecycle hooks for graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              # Sleep to allow load balancer to deregister pod before stopping
+              # This prevents "connection reset" errors during shutdown
+              command: ["/bin/sh", "-c", "sleep 15"]
+        # Startup probe: Give the app time to initialize (up to 5 minutes)
+        # Uses dedicated /health endpoint that doesn't block on transcription
+        startupProbe:
           httpGet:
-            path: /
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /
+            path: /health
             port: 8000
           initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30  # 30 * 10s = 5 minutes max startup time
+        
+        # Liveness probe: Detect if the app is completely stuck/deadlocked
+        # Uses lightweight /health endpoint to avoid false positives during heavy load
+        # Much more lenient since transcription can take 60+ seconds
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30        # Check every 30 seconds (was 10)
+          timeoutSeconds: 10       # Allow 10 seconds for response (was 5)
+          failureThreshold: 6      # 6 failures = 3 minutes before restart (was 3)
+        
+        # Readiness probe: Determine if pod can receive traffic
+        # Uses /readiness endpoint to check if service is ready
+        # More lenient to handle load spikes without removing pod from service
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10        # Check every 10 seconds (was 5)
+          timeoutSeconds: 5        # Allow 5 seconds for response (was 3)
+          failureThreshold: 3      # Remove from service after 3 failures (30s)
