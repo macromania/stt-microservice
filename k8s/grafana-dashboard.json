@@ -1094,38 +1094,11 @@
             "uid": "${datasource}"
           },
           "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"stt-service.*\", container!=\"\"}[5m])) by (pod)",
-          "legendFormat": "CPU Usage: {{pod}}",
+          "legendFormat": "{{pod}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(kube_pod_container_resource_limits{resource=\"cpu\", pod=~\"stt-service.*\"}) by (pod)",
-          "legendFormat": "CPU Limit: {{pod}}",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", pod=~\"stt-service.*\"}) by (pod)",
-          "legendFormat": "CPU Request: {{pod}}",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "process_pool_cpu_percent{process_type=\"total\"} / 100",
-          "legendFormat": "Process Pool Total: {{pod}}",
-          "refId": "D"
         }
       ],
-      "title": "Container CPU Usage (K8s + Process Metrics)",
+      "title": "Pod CPU Usage",
       "type": "timeseries"
     },
     {
