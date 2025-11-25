@@ -1,5 +1,6 @@
 """Main FastAPI application."""
 
+import asyncio
 import logging
 import time
 
@@ -24,6 +25,34 @@ logger.info("Loading application settings...")
 settings = get_settings()
 setup_logging(log_level=settings.app_log_level or "INFO")
 logger.info("Logging configured successfully.")
+
+
+async def periodic_pool_recycler():
+    """
+    Background task to recycle process pool during idle periods.
+
+    Runs every 30 minutes and recycles the pool during low-traffic hours (2-4 AM).
+    """
+    while True:
+        try:
+            # Run every 5 minutes
+            await asyncio.sleep(600)
+
+            from src.api.stt import get_process_service
+
+            service = get_process_service()
+            logger.info("Attempting scheduled pool recycle...")
+
+            if service.restart_if_idle():
+                logger.info("Process pool recycled successfully during idle period")
+            else:
+                logger.debug("Pool busy or restart failed, skipping scheduled recycle")
+
+        except asyncio.CancelledError:
+            logger.info("Pool recycler task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in pool recycler: {e}", exc_info=True)
 
 
 @asynccontextmanager
@@ -53,12 +82,26 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to start memory collector: {e}")
         # Non-critical, continue startup
 
+    # Start pool recycler background task
+    recycler_task = asyncio.create_task(periodic_pool_recycler())
+    logger.info("Process pool recycler started")
+
     logger.info("Application startup completed")
 
     yield
 
     # Shutdown code here
     logger.info("Shutting down application...")
+
+    # Cancel pool recycler task
+    try:
+        recycler_task.cancel()
+        await recycler_task
+        logger.info("Process pool recycler stopped")
+    except asyncio.CancelledError:
+        logger.info("Process pool recycler cancelled successfully")
+    except Exception as e:
+        logger.error(f"Error stopping pool recycler: {e}")
 
     # Stop memory collector
     try:

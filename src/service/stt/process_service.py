@@ -14,6 +14,8 @@ from multiprocessing import TimeoutError as MPTimeoutError
 from pathlib import Path
 from typing import Any
 
+import psutil
+
 from src.core.config import get_settings
 from src.core.exception import AudioFormatError
 from src.service.stt.models import TranscriptionResponse, TranscriptionSegment
@@ -269,6 +271,142 @@ class ProcessIsolatedTranscriptionService:
             "timeout": self.timeout,
             "status": "healthy" if self.pool is not None else "unhealthy",
         }
+
+    def is_pool_idle(self) -> bool:
+        """
+        Check if process pool has any pending or running work.
+
+        Returns
+        -------
+        bool
+            True if pool is idle (no work), False if work is pending/running
+        """
+        try:
+            # Check internal pool cache for pending results
+            if hasattr(self.pool, "_cache") and len(self.pool._cache) > 0:
+                return False  # Work is pending
+
+            # Check if any worker processes are actually running
+            from src.core.process_metrics import ProcessPoolMonitor
+
+            monitor = ProcessPoolMonitor()
+            workers = monitor.get_worker_processes()
+
+            # If workers exist and consuming CPU, they're working
+            for worker in workers:
+                try:
+                    cpu = worker.cpu_percent(interval=0.1)
+                    if cpu > 1.0:  # More than 1% CPU = working
+                        return False
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            return True  # Idle
+
+        except Exception as e:
+            logger.error(f"Failed to check pool idle state: {e}")
+            return False  # Assume busy on error
+
+    def get_pool_stats(self) -> dict[str, Any]:
+        """
+        Get detailed pool statistics.
+
+        Returns
+        -------
+        dict
+            Pool statistics including pending work, worker count, memory usage
+        """
+        from src.core.process_metrics import ProcessPoolMonitor
+
+        try:
+            monitor = ProcessPoolMonitor()
+
+            # Get pending work count
+            pending_tasks = len(self.pool._cache) if hasattr(self.pool, "_cache") else 0
+
+            # Get worker info
+            workers = monitor.get_worker_processes()
+            worker_count = len(workers)
+
+            # Get memory usage
+            memory_stats = monitor.get_aggregate_memory_usage()
+
+            return {
+                "pool_size": self.pool_size,
+                "active_workers": worker_count,
+                "pending_tasks": pending_tasks,
+                "is_idle": pending_tasks == 0 and worker_count == 0,
+                "memory_mb": memory_stats["total_rss_bytes"] / (1024 * 1024),
+                "avg_worker_memory_mb": memory_stats["per_worker_avg_bytes"] / (1024 * 1024),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get pool stats: {e}")
+            return {
+                "pool_size": self.pool_size,
+                "error": str(e),
+            }
+
+    def restart_pool(self, wait_timeout: int = 30) -> bool:
+        """
+        Restart the process pool (terminate old, create new).
+
+        Only restarts if pool is idle or after timeout.
+
+        Parameters
+        ----------
+        wait_timeout : int, optional
+            Max seconds to wait for idle state before forcing restart
+
+        Returns
+        -------
+        bool
+            True if restart successful, False otherwise
+        """
+        import time
+
+        try:
+            logger.info("Attempting to restart process pool...")
+
+            # Wait for pool to become idle (with timeout)
+            start_time = time.time()
+            while time.time() - start_time < wait_timeout:
+                if self.is_pool_idle():
+                    logger.info("Pool is idle, proceeding with restart")
+                    break
+                logger.debug(f"Waiting for pool to become idle... ({time.time() - start_time:.1f}s elapsed)")
+                time.sleep(1.0)
+            else:
+                logger.warning(f"Pool not idle after {wait_timeout}s, forcing restart")
+
+            # Shutdown old pool
+            self.shutdown(timeout=10)
+
+            # Create new pool
+            self.pool = Pool(processes=self.pool_size, maxtasksperchild=100)
+
+            logger.info("Process pool restarted successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to restart pool: {e}")
+            return False
+
+    def restart_if_idle(self) -> bool:
+        """
+        Restart pool only if it's currently idle.
+
+        Non-blocking check - returns immediately if pool is busy.
+
+        Returns
+        -------
+        bool
+            True if restarted, False if busy or restart failed
+        """
+        if self.is_pool_idle():
+            return self.restart_pool(wait_timeout=5)
+
+        logger.debug("Pool is busy, skipping restart")
+        return False
 
     def shutdown(self, timeout: int = 30) -> None:
         """
