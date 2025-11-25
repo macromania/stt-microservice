@@ -85,7 +85,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 8
       },
       "id": 1,
       "options": {
@@ -175,7 +175,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 8
       },
       "id": 2,
       "options": {
@@ -284,7 +284,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 8
+        "y": 16
       },
       "id": 7,
       "options": {
@@ -384,7 +384,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 8
+        "y": 16
       },
       "id": 8,
       "options": {
@@ -493,7 +493,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 8
+        "y": 16
       },
       "id": 14,
       "options": {
@@ -584,7 +584,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 8
+        "y": 16
       },
       "id": 10,
       "options": {
@@ -988,9 +988,18 @@
           "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\", pod=~\"stt-service.*\"}) by (pod)",
           "legendFormat": "Memory Request: {{pod}}",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_pool_memory_bytes{process_type=\"total\"}",
+          "legendFormat": "Process Pool Total: {{pod}}",
+          "refId": "D"
         }
       ],
-      "title": "Container Memory Usage vs Limits (All Processes)",
+      "title": "Container Memory Usage (K8s + Process Metrics)",
       "type": "timeseries"
     },
     {
@@ -1105,9 +1114,18 @@
           "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", pod=~\"stt-service.*\"}) by (pod)",
           "legendFormat": "CPU Request: {{pod}}",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_pool_cpu_percent{process_type=\"total\"} / 100",
+          "legendFormat": "Process Pool Total: {{pod}}",
+          "refId": "D"
         }
       ],
-      "title": "Container CPU Usage (All Processes)",
+      "title": "Container CPU Usage (K8s + Process Metrics)",
       "type": "timeseries"
     },
     {
@@ -1210,12 +1228,30 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(container_memory_rss{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
-          "legendFormat": "RSS: {{pod}}",
+          "expr": "sum(container_memory_rss_bytes{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
+          "legendFormat": "K8s RSS: {{pod}}",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_pool_memory_bytes{process_type=\"workers\"}",
+          "legendFormat": "Workers: {{pod}}",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_pool_memory_bytes{process_type=\"parent\"}",
+          "legendFormat": "Parent: {{pod}}",
+          "refId": "D"
         }
       ],
-      "title": "Container Memory Details (All Processes)",
+      "title": "Memory Breakdown (K8s + Process Pool)",
       "type": "timeseries"
     },
     {
@@ -1264,7 +1300,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
+        "h": 8,
         "w": 6,
         "x": 0,
         "y": 33
@@ -1355,8 +1391,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
+        "w": 9,
+        "x": 6,
         "y": 33
       },
       "id": 101,
@@ -1499,8 +1535,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 9,
+        "x": 15,
         "y": 33
       },
       "id": 102,
