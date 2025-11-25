@@ -405,7 +405,7 @@ export default function (data) {
   // Send request
   const startTime = Date.now();
   const response = http.post(
-    `${BASE_URL}/transcriptions`,
+    `${BASE_URL}/transcriptions/process-isolated`,
     formData.body(),
     {
       headers: {

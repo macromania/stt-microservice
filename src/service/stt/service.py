@@ -229,16 +229,8 @@ def _sync_transcribe_impl(
         # These objects hold internal buffers, audio streams, and network connections
         short_trace_id = trace_id[:8]
 
-        # Close network connection first (releases TCP sockets and buffers)
-        if connection is not None:
-            try:
-                connection.close()
-                connection.connected.disconnect_all()
-                connection.disconnected.disconnect_all()
-                logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
-            except Exception as e:
-                logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
-
+        # CRITICAL: Stop transcriber BEFORE closing connection to avoid SDK errors
+        # The connection must remain open while transcription is being stopped
         if transcriber is not None:
             try:
                 # Ensure transcription is stopped
@@ -259,6 +251,16 @@ def _sync_transcribe_impl(
                 logger.info(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
             except Exception as e:
                 logger.error(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
+
+        # Now close network connection (releases TCP sockets and buffers)
+        if connection is not None:
+            try:
+                connection.close()
+                connection.connected.disconnect_all()
+                connection.disconnected.disconnect_all()
+                logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
+            except Exception as e:
+                logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
 
         # Explicitly delete callback functions to break closures
         try:
