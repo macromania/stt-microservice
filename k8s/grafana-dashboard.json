@@ -988,18 +988,9 @@
           "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\", pod=~\"stt-service.*\"}) by (pod)",
           "legendFormat": "Memory Request: {{pod}}",
           "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "process_pool_memory_bytes{process_type=\"total\"}",
-          "legendFormat": "Process Pool Total: {{pod}}",
-          "refId": "D"
         }
       ],
-      "title": "Container Memory Usage (K8s + Process Metrics)",
+      "title": "Container Memory Usage (K8s Metrics)",
       "type": "timeseries"
     },
     {
@@ -1204,27 +1195,9 @@
           "expr": "sum(container_memory_rss_bytes{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
           "legendFormat": "K8s RSS: {{pod}}",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "process_pool_memory_bytes{process_type=\"workers\"}",
-          "legendFormat": "Workers: {{pod}}",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "process_pool_memory_bytes{process_type=\"parent\"}",
-          "legendFormat": "Parent: {{pod}}",
-          "refId": "D"
         }
       ],
-      "title": "Memory Breakdown (K8s + Process Pool)",
+      "title": "Memory Breakdown (K8s Metrics)",
       "type": "timeseries"
     },
     {
@@ -1300,12 +1273,12 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_pool_worker_count",
-          "legendFormat": "Workers",
+          "expr": "sum(kube_pod_container_status_running{pod=~\"stt-service.*\"})",
+          "legendFormat": "Running Pods",
           "refId": "A"
         }
       ],
-      "title": "Active Worker Processes",
+      "title": "Running STT Pods",
       "type": "stat"
     },
     {
