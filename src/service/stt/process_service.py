@@ -59,7 +59,7 @@ class ProcessIsolatedTranscriptionService:
         settings = get_settings()
 
         self.pool_size = pool_size or getattr(settings, "process_pool_size", 4)
-        self.timeout = timeout or getattr(settings, "process_timeout", 180)
+        self.timeout = timeout or getattr(settings, "process_timeout", 300)
 
         # Initialize process pool with worker recycling
         # maxtasksperchild=10: Workers restart after 10 tasks to prevent memory accumulation

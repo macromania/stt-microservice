@@ -60,15 +60,15 @@ spec:
         
         # Liveness probe: Detect if the app is completely stuck/deadlocked
         # Uses lightweight /health endpoint to avoid false positives during heavy load
-        # Aligned with 180s process timeout: 8 failures × 30s = 4 minutes buffer
+        # Aligned with 300s process timeout: 10 failures × 30s = 5 minutes buffer
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
           initialDelaySeconds: 30
           periodSeconds: 30        # Check every 30 seconds
-          timeoutSeconds: 15       # Allow 15 seconds for response (was 10)
-          failureThreshold: 8      # 8 failures = 4 minutes before restart (> 180s timeout)
+          timeoutSeconds: 15       # Allow 15 seconds for response
+          failureThreshold: 12     # 12 failures = 6 minutes before restart (> 300s timeout)
         
         # Readiness probe: Determine if pod can receive traffic
         # Uses /readiness endpoint to check if service is ready
