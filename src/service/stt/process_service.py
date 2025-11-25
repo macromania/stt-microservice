@@ -7,6 +7,7 @@ allocated by the Azure Speech SDK is guaranteed to be reclaimed by
 the OS when the child process exits.
 """
 
+import asyncio
 import logging
 from multiprocessing import Pool
 from multiprocessing import TimeoutError as MPTimeoutError
@@ -137,9 +138,22 @@ class ProcessIsolatedTranscriptionService:
                 ),
             )
 
-            # Wait for result with timeout
-            # This timeout is a safety net; the worker also has internal timeout
-            result = result_async.get(timeout=self.timeout + 10)
+            # Wait for result with timeout in a non-blocking way
+            # Poll the result in a loop to avoid blocking the event loop
+            # This allows health checks and other requests to be processed concurrently
+            timeout_seconds = self.timeout + 10
+            poll_interval = 0.1  # Check every 100ms
+            elapsed = 0.0
+
+            while elapsed < timeout_seconds:
+                if result_async.ready():
+                    result = result_async.get(timeout=0.1)
+                    break
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+            else:
+                # Timeout occurred
+                raise MPTimeoutError(f"Transcription timeout after {timeout_seconds}s")
 
             # Check if transcription was successful
             if not result["success"]:
