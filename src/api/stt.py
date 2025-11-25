@@ -62,6 +62,13 @@ process_timeout_total = Counter("process_timeout_total", "Total number of proces
 
 process_crash_total = Counter("process_crash_total", "Total number of process crashes")
 
+# Process worker memory metrics
+process_parent_memory_bytes = Gauge("process_parent_memory_bytes", "Parent Python process memory (RSS)")
+process_workers_memory_bytes = Gauge("process_workers_memory_bytes", "Total worker processes memory (RSS)")
+process_worker_count = Gauge("process_worker_count", "Number of active worker processes")
+process_per_worker_memory_bytes = Gauge("process_per_worker_memory_bytes", "Average memory per worker process")
+process_total_memory_bytes = Gauge("process_total_memory_bytes", "Total memory (parent + workers)")
+
 
 @lru_cache(maxsize=1)
 def get_process_service():

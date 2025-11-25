@@ -43,12 +43,31 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize process pool: {e}")
         # Don't fail startup - pool will be initialized on first request as fallback
 
+    # Start background memory collector for process monitoring
+    try:
+        from src.core.memory_collector import start_memory_collector
+
+        start_memory_collector()
+        logger.info("Process memory collector started")
+    except Exception as e:
+        logger.error(f"Failed to start memory collector: {e}")
+        # Non-critical, continue startup
+
     logger.info("Application startup completed")
 
     yield
 
     # Shutdown code here
     logger.info("Shutting down application...")
+
+    # Stop memory collector
+    try:
+        from src.core.memory_collector import stop_memory_collector
+
+        stop_memory_collector()
+        logger.info("Process memory collector stopped")
+    except Exception as e:
+        logger.error(f"Error stopping memory collector: {e}")
 
     # Shutdown process pool if it exists
     try:

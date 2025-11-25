@@ -60,10 +60,13 @@ COPY src/ /app/src/
 # dirty_decay_ms:1000 - Purge freed (dirty) pages every ~1 second (50% half-life)
 # muzzy_decay_ms:1000 - Purge MADV_FREE pages every ~1 second
 ENV MALLOC_CONF="background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+# Create a wrapper script to dynamically find and preload jemalloc
+RUN printf '#!/bin/sh\nexport LD_PRELOAD=$(find /usr/lib -name "libjemalloc.so.2*" -type f | head -n 1)\nexec "$@"\n' > /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose the port the app will run on
 EXPOSE 8000
 
-# Use python -m uvicorn to run the FastAPI application
+# Use entrypoint wrapper to dynamically load jemalloc before starting the app
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
