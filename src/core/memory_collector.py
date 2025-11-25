@@ -69,8 +69,8 @@ async def collect_process_memory_metrics() -> None:
             logger.warning(f"Error collecting process memory metrics: {e}")
             # Continue running despite errors
 
-        # Wait 15 seconds before next collection
-        await asyncio.sleep(15)
+        # Wait 5 seconds before next collection
+        await asyncio.sleep(5)
 
 
 def start_memory_collector() -> None:
