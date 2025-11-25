@@ -1093,7 +1093,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"stt-service.*\", container!=\"\"}[5m])) by (pod)",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"stt-service.*\", cpu=\"total\"}[1m])) by (pod)",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
