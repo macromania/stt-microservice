@@ -59,13 +59,13 @@ class ProcessIsolatedTranscriptionService:
         """
         settings = get_settings()
 
-        self.pool_size = pool_size or getattr(settings, "process_pool_size", 4)
+        self.pool_size = pool_size or getattr(settings, "process_pool_size", 12)
         self.timeout = timeout or getattr(settings, "process_timeout", 300)
 
         # Initialize process pool with worker recycling
-        # maxtasksperchild=10: Workers restart after 10 tasks to prevent memory accumulation
+        # maxtasksperchild=100: Workers restart after 100 tasks to prevent memory accumulation
         # Note: Pool workers are started lazily on first request
-        self.pool = Pool(processes=self.pool_size, maxtasksperchild=10)
+        self.pool = Pool(processes=self.pool_size, maxtasksperchild=100)
 
         logger.info(f"ProcessIsolatedTranscriptionService initialized: pool_size={self.pool_size}, timeout={self.timeout}s")
 
