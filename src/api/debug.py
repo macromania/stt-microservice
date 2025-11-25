@@ -116,6 +116,45 @@ async def get_memory_info(
     }
 
 
+@router.get("/pool/metrics")
+async def get_pool_metrics():
+    """
+    Get real-time process pool resource metrics.
+
+    Returns detailed information about parent and worker processes including
+    memory usage, CPU usage, and process tree information.
+    """
+    try:
+        from src.main import _pool_monitor
+
+        if _pool_monitor is None:
+            return {"error": "Process pool monitor not initialized"}
+
+        # Get detailed metrics
+        mem_stats = _pool_monitor.get_aggregate_memory_usage()
+        cpu_stats = _pool_monitor.get_aggregate_cpu_usage()
+        tree_info = _pool_monitor.get_process_tree_info()
+
+        return {
+            "memory": {
+                "total_mb": round(mem_stats["total_rss_bytes"] / (1024 * 1024), 2),
+                "parent_mb": round(mem_stats["parent_rss_bytes"] / (1024 * 1024), 2),
+                "workers_mb": round(mem_stats["workers_rss_bytes"] / (1024 * 1024), 2),
+                "worker_count": mem_stats["worker_count"],
+                "avg_worker_mb": round(mem_stats["per_worker_avg_bytes"] / (1024 * 1024), 2),
+            },
+            "cpu": {
+                "total_percent": round(cpu_stats["total_cpu_percent"], 2),
+                "parent_percent": round(cpu_stats["parent_cpu_percent"], 2),
+                "workers_percent": round(cpu_stats["workers_cpu_percent"], 2),
+            },
+            "process_tree": tree_info,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pool metrics: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
 @router.get("/memory/types")
 async def get_memory_by_type(
     type_name: str = Query(..., description="Object type name to search for (e.g., 'dict', 'list')"),

@@ -12,11 +12,15 @@ from src.api.debug import router as debug_router
 from src.api.stt import router as stt_router
 from src.core.config import get_settings
 from src.core.logging import setup_logging
+from src.core.process_metrics import ProcessPoolMonitor
 from src.core.trace import extract_or_generate_trace_id, set_trace_id
 
 # Initial basic logging configuration to capture logs during startup
 logging.basicConfig(level=logging.INFO, force=True, format="%(asctime)s - %(levelname)s:    %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
+
+# Global process pool monitor instance
+_pool_monitor = None
 
 logger.info("Loading application settings...")
 
@@ -31,6 +35,11 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup code here
     logger.info("Initializing services...")
+
+    # Initialize global process pool monitor
+    global _pool_monitor
+    _pool_monitor = ProcessPoolMonitor()
+    logger.info("Process pool monitor initialized")
 
     # Eagerly initialize process pool to avoid delay on first request
     # This ensures the pool is ready before any traffic arrives
@@ -122,7 +131,43 @@ app.include_router(stt_router)
 app.include_router(debug_router)
 
 # Setup Prometheus metrics
-Instrumentator().instrument(app).expose(app)
+instrumentator = Instrumentator()
+instrumentator.instrument(app).expose(app)
+
+
+@app.middleware("http")
+async def update_pool_metrics_middleware(request: Request, call_next):
+    """Update process pool metrics before each request for accurate monitoring."""
+    global _pool_monitor
+
+    # Update metrics before processing request
+    if _pool_monitor is not None:
+        try:
+            from src.api.stt import (
+                process_pool_avg_worker_memory_bytes,
+                process_pool_cpu_percent,
+                process_pool_memory_bytes,
+                process_pool_worker_count,
+            )
+
+            # Update memory metrics
+            mem_stats = _pool_monitor.get_aggregate_memory_usage()
+            process_pool_memory_bytes.labels(process_type="total").set(mem_stats["total_rss_bytes"])
+            process_pool_memory_bytes.labels(process_type="parent").set(mem_stats["parent_rss_bytes"])
+            process_pool_memory_bytes.labels(process_type="workers").set(mem_stats["workers_rss_bytes"])
+            process_pool_worker_count.set(mem_stats["worker_count"])
+            process_pool_avg_worker_memory_bytes.set(mem_stats["per_worker_avg_bytes"])
+
+            # Update CPU metrics
+            cpu_stats = _pool_monitor.get_aggregate_cpu_usage()
+            process_pool_cpu_percent.labels(process_type="total").set(cpu_stats["total_cpu_percent"])
+            process_pool_cpu_percent.labels(process_type="parent").set(cpu_stats["parent_cpu_percent"])
+            process_pool_cpu_percent.labels(process_type="workers").set(cpu_stats["workers_cpu_percent"])
+        except Exception as e:
+            logger.debug(f"Failed to update pool metrics: {e}")
+
+    response = await call_next(request)
+    return response
 
 
 @app.get("/")

@@ -967,8 +967,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(process_resident_memory_bytes{service=~\"stt-service.*\"}) by (pod)",
-          "legendFormat": "Memory: {{pod}}",
+          "expr": "sum(container_memory_working_set_bytes{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
+          "legendFormat": "Memory Usage: {{pod}}",
           "refId": "A"
         },
         {
@@ -976,12 +976,21 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "kube_pod_container_resource_limits{resource=\"memory\", pod=~\"stt-service.*\"}",
-          "legendFormat": "Memory Limit",
+          "expr": "sum(kube_pod_container_resource_limits{resource=\"memory\", pod=~\"stt-service.*\"}) by (pod)",
+          "legendFormat": "Memory Limit: {{pod}}",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\", pod=~\"stt-service.*\"}) by (pod)",
+          "legendFormat": "Memory Request: {{pod}}",
+          "refId": "C"
         }
       ],
-      "title": "Resource Usage vs Limits",
+      "title": "Container Memory Usage vs Limits (All Processes)",
       "type": "timeseries"
     },
     {
@@ -1075,12 +1084,30 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "rate(process_cpu_seconds_total{job=\"stt-service\"}[5m])",
-          "legendFormat": "{{pod}}",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"stt-service.*\", container!=\"\"}[5m])) by (pod)",
+          "legendFormat": "CPU Usage: {{pod}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(kube_pod_container_resource_limits{resource=\"cpu\", pod=~\"stt-service.*\"}) by (pod)",
+          "legendFormat": "CPU Limit: {{pod}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", pod=~\"stt-service.*\"}) by (pod)",
+          "legendFormat": "CPU Request: {{pod}}",
+          "refId": "C"
         }
       ],
-      "title": "CPU Usage (Process)",
+      "title": "Container CPU Usage (All Processes)",
       "type": "timeseries"
     },
     {
@@ -1174,12 +1201,21 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_resident_memory_bytes{job=\"stt-service\"}",
-          "legendFormat": "{{pod}}",
+          "expr": "sum(container_memory_working_set_bytes{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
+          "legendFormat": "Working Set: {{pod}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(container_memory_rss{pod=~\"stt-service.*\", container!=\"\"}) by (pod)",
+          "legendFormat": "RSS: {{pod}}",
+          "refId": "B"
         }
       ],
-      "title": "Memory Usage (Process)",
+      "title": "Container Memory Details (All Processes)",
       "type": "timeseries"
     },
     {
@@ -1194,6 +1230,74 @@
       "panels": [],
       "title": "Process-Isolated Transcription Metrics",
       "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 4
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 33
+      },
+      "id": 103,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_pool_worker_count",
+          "legendFormat": "Workers",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Worker Processes",
+      "type": "stat"
     },
     {
       "datasource": {

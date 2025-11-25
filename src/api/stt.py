@@ -62,6 +62,32 @@ process_timeout_total = Counter("process_timeout_total", "Total number of proces
 
 process_crash_total = Counter("process_crash_total", "Total number of process crashes")
 
+# Process pool resource metrics (tracks parent + all workers)
+# NOTE: These are supplementary metrics for debugging. Kubernetes already provides
+# container_memory_working_set_bytes and container_cpu_usage_seconds_total which
+# include ALL processes in the container (parent + workers). Use those for monitoring.
+process_pool_memory_bytes = Gauge(
+    "process_pool_memory_bytes",
+    "Total memory usage of process pool (parent + all workers) - for debugging only",
+    ["process_type"],  # parent, workers, total
+)
+
+process_pool_cpu_percent = Gauge(
+    "process_pool_cpu_percent",
+    "CPU usage percentage of process pool (parent + all workers)",
+    ["process_type"],  # parent, workers, total
+)
+
+process_pool_worker_count = Gauge(
+    "process_pool_worker_count",
+    "Number of active worker processes in the pool",
+)
+
+process_pool_avg_worker_memory_bytes = Gauge(
+    "process_pool_avg_worker_memory_bytes",
+    "Average memory usage per worker process",
+)
+
 
 @lru_cache(maxsize=1)
 def get_process_service():
