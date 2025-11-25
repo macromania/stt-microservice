@@ -74,8 +74,6 @@ def _sync_transcribe_impl(
     transcriber = None
     auto_detect_config = None
     credential = None
-    connection = None
-    result_queue = None
 
     try:
         # Get token: use environment variable if available (K8s), otherwise create fresh credential
@@ -134,15 +132,11 @@ def _sync_transcribe_impl(
                 audio_config=audio_config,
             )
 
-        # Get connection handle for explicit network cleanup
-        from azure.cognitiveservices.speech import Connection
-
-        connection = Connection.from_recognizer(transcriber)
-
         # Callback state with queue-based pattern and Event for completion
         result_queue = Queue()
         detected_language = azure_language or "en-US"
         done_event = threading.Event()  # Use Event for efficient blocking wait
+        is_stopped = False  # Track if we've already stopped
 
         def on_transcribed(evt):
             nonlocal detected_language, result_queue
@@ -194,6 +188,7 @@ def _sync_transcribe_impl(
         short_trace_id = trace_id[:8]
         logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
         transcriber.stop_transcribing_async()
+        is_stopped = True
 
         # Drain queue and build segments list (no SDK references in segments)
         segments = []
@@ -231,83 +226,31 @@ def _sync_transcribe_impl(
         # These objects hold internal buffers, audio streams, and network connections
         short_trace_id = trace_id[:8]
 
-        # CRITICAL: Stop transcriber BEFORE closing connection to avoid SDK errors
-        # The connection must remain open while transcription is being stopped
+        # Minimal cleanup - disconnect event handlers to break circular references
+        # Process exit will handle all other cleanup (connections, memory, etc.)
         if transcriber is not None:
             try:
-                # Ensure transcription is stopped
-                transcriber.stop_transcribing_async().get()
+                # Only stop if not already stopped to avoid double-stop errors
+                if not is_stopped:
+                    transcriber.stop_transcribing_async()
 
-                # Disconnect ALL event handlers to break circular references
-                # ConversationTranscriber-specific events
+                # Disconnect event handlers to break circular references
                 transcriber.transcribed.disconnect_all()
                 transcriber.transcribing.disconnect_all()
                 transcriber.canceled.disconnect_all()
-
-                # Recognizer base class events (inherited)
                 transcriber.session_started.disconnect_all()
                 transcriber.session_stopped.disconnect_all()
                 transcriber.speech_start_detected.disconnect_all()
                 transcriber.speech_end_detected.disconnect_all()
+            except Exception:
+                pass  # Ignore cleanup errors - process exit will handle cleanup
 
-                logger.info(f"[{short_trace_id}] Transcriber cleaned up", extra={"trace_id": trace_id})
-            except Exception as e:
-                logger.error(f"[{short_trace_id}] Error during transcriber cleanup: {e}", extra={"trace_id": trace_id})
-
-        # Now close network connection (releases TCP sockets and buffers)
-        if connection is not None:
-            try:
-                connection.close()
-                connection.connected.disconnect_all()
-                connection.disconnected.disconnect_all()
-                logger.info(f"[{short_trace_id}] Connection closed", extra={"trace_id": trace_id})
-            except Exception as e:
-                logger.error(f"[{short_trace_id}] Error closing connection: {e}", extra={"trace_id": trace_id})
-
-        # Explicitly delete callback functions to break closures
-        try:
-            del on_transcribed
-            del on_stopped
-        except (NameError, UnboundLocalError):
-            pass  # Callbacks not created (early error)
-
-        # Delete local variables that might hold references
-        try:
-            del result_queue
-            del segments
-            del done_event
-            del detected_language
-        except (NameError, UnboundLocalError):
-            pass
-
-        # Close credential to release HTTP client and connection pool
-        if credential is not None:
-            try:
-                credential.close()
-                logger.info(f"[{short_trace_id}] Credential closed", extra={"trace_id": trace_id})
-            except Exception as e:
-                logger.error(f"[{short_trace_id}] Error closing credential: {e}", extra={"trace_id": trace_id})
-
-        # Explicitly delete SDK objects to release resources immediately
-        # This helps Python's garbage collector reclaim memory faster
-        del transcriber
-        del audio_config
-        del speech_config
-        del auto_detect_config
-        del credential
-        del connection
-
-        # Clear property collections that may hold C++ references
-        try:
-            if speech_config is not None and hasattr(speech_config, "_properties"):
-                del speech_config._properties
-            if transcriber is not None and hasattr(transcriber, "_properties"):
-                del transcriber._properties
-        except (AttributeError, NameError):
-            pass
-
-        # Force immediate GC to release native resources
-        gc.collect()
+        # No need for explicit cleanup - process isolation handles everything
+        # When the worker process exits, the OS will:
+        # - Close all network connections
+        # - Release all memory (including native SDK allocations)
+        # - Clean up all file descriptors
+        # This is faster and more reliable than manual cleanup
 
 
 class TranscriptionService:

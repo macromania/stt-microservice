@@ -34,14 +34,16 @@ while not done and elapsed < timeout:
 2. The Azure SDK calls callbacks immediately when events occur
 3. But we only check the `done` flag every 0.5 seconds
 4. This creates **cumulative latency** across all transcription events
+5. **Blocking cleanup operations** - manual connection closing, delays, etc.
 
 ## Solution Implemented
 
-Replaced inefficient polling with **threading.Event** for immediate signaling:
+### 1. Replaced inefficient polling with **threading.Event**
 
 **Good Pattern (After):**
 ```python
 done_event = threading.Event()
+is_stopped = False
 
 def on_stopped(evt):
     nonlocal done_event
@@ -53,6 +55,9 @@ def on_stopped(evt):
 timeout = 300
 if not done_event.wait(timeout=timeout):
     raise TimeoutError(f"Transcription timeout after {timeout}s")
+
+transcriber.stop_transcribing_async()
+is_stopped = True
 ```
 
 **Benefits:**
@@ -60,23 +65,52 @@ if not done_event.wait(timeout=timeout):
 2. **Efficient blocking** - thread is parked by OS, no CPU cycles wasted
 3. **Proper timeout handling** - Event.wait() returns False if timeout occurs
 
-## Additional Improvements
+### 2. Removed blocking cleanup operations
 
-1. **Ensured async operations complete:**
-   ```python
-   transcriber.start_transcribing_async().get()  # Wait for start
-   # ... work ...
-   transcriber.stop_transcribing_async().get()  # Wait for stop
-   ```
+**Old cleanup (BAD):**
+```python
+# Double-stop (causes SDK errors)
+transcriber.stop_transcribing_async().get()  # BLOCKS
+time.sleep(0.1)  # ADDS LATENCY
 
-2. **Proper cleanup** - Updated to delete `done_event` instead of `done` flag
+# Manual connection close
+time.sleep(0.05)  # ADDS LATENCY
+connection.close()  # Can cause errors
+
+# Extensive manual cleanup
+del credential, connection, transcriber, ...
+gc.collect()  # BLOCKS
+```
+
+**New cleanup (GOOD):**
+```python
+# Minimal cleanup - only disconnect event handlers
+if not is_stopped:
+    transcriber.stop_transcribing_async()  # NO .get()
+
+transcriber.transcribed.disconnect_all()
+# ... disconnect other handlers ...
+
+# Process exit handles everything else - FAST & RELIABLE
+# - OS closes network connections
+# - OS releases all memory
+# - OS cleans up file descriptors
+```
+
+**Benefits:**
+1. **No blocking delays** - removed all `time.sleep()` and `.get()` calls
+2. **No SDK state errors** - prevents double-stop and connection closing conflicts
+3. **Faster cleanup** - process exit is instant and guaranteed
+4. **Simpler code** - rely on process isolation instead of manual cleanup
 
 ## Expected Impact
 
-- **Reduction in latency**: 60-70 seconds of artificial delays eliminated
+- **Reduction in latency**: 60-70+ seconds of artificial delays eliminated
 - Small files should now process in **2-5 seconds** instead of 68-92 seconds
 - Large files will see proportional improvements
-- Memory stability maintained (no change to memory management)
+- No SDK state errors (`SPXERR_CHANGE_CONNECTION_STATUS_NOT_ALLOWED`)
+- Memory stability maintained (process isolation handles cleanup)
+- Faster worker process termination
 
 ## Testing Recommendations
 
@@ -116,11 +150,18 @@ if not done_event.wait(timeout=timeout):
 ## Files Modified
 
 - `/workspaces/stt-microservice/src/service/stt/service.py`
-  - Added `threading` import
+  - Added `threading` import for Event-based signaling
   - Replaced `done` flag with `done_event` (threading.Event)
-  - Replaced polling loop with `done_event.wait(timeout)`
-  - Added `.get()` calls to ensure async operations complete
-  - Updated cleanup code
+  - Replaced polling loop with `done_event.wait(timeout)` - zero latency wait
+  - Added `is_stopped` flag to prevent double-stop errors
+  - Removed ALL blocking operations in cleanup:
+    - No `.get()` calls on async operations
+    - No `time.sleep()` delays
+    - No manual connection closing
+    - No manual resource deletion
+    - No `gc.collect()`
+  - Minimal cleanup: only disconnect event handlers
+  - Rely on process exit for all other cleanup
 
 ## Related Documentation
 
