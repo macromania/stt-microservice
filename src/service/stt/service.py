@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import gc
 import logging
-from pathlib import Path
 import threading
 import time
 from typing import Any
@@ -161,21 +160,31 @@ def _sync_transcribe_impl(
 
         def on_stopped(evt):
             nonlocal done_event
+            # Log the event type and reason
+            event_name = evt.__class__.__name__ if hasattr(evt, "__class__") else "unknown"
+            logger.warning(f"[{trace_id[:8]}] on_stopped triggered by: {event_name}", extra={"trace_id": trace_id})
             done_event.set()  # Signal completion immediately
+
+        def on_canceled(evt):
+            nonlocal done_event
+            # Log cancellation details
+            cancellation_reason = evt.cancellation_details.reason if hasattr(evt, "cancellation_details") else "unknown"
+            error_details = evt.cancellation_details.error_details if hasattr(evt, "cancellation_details") else "none"
+            logger.warning(f"[{trace_id[:8]}] Transcription canceled: {cancellation_reason}, details: {error_details}", extra={"trace_id": trace_id})
+            done_event.set()  # Signal completion
 
         # Connect callbacks
         transcriber.transcribed.connect(on_transcribed)
         transcriber.session_stopped.connect(on_stopped)
-        transcriber.canceled.connect(on_stopped)
+        transcriber.canceled.connect(on_canceled)
 
         # Start transcription
         short_trace_id = trace_id[:8]
         logger.info(f"[{short_trace_id}] Starting transcription...", extra={"trace_id": trace_id})
         transcriber.start_transcribing_async()
 
-        # Delete temp file immediately after SDK opens it (aggressive memory cleanup)
-        # File descriptor is already open, so SDK can still read. Inode freed immediately.
-        Path(audio_file_path).unlink(missing_ok=True)
+        # DON'T delete temp file immediately - let it exist until transcription completes
+        # The Azure SDK needs the file to remain accessible during processing
 
         # Wait for completion using Event (efficient blocking wait)
         # This blocks the thread until done_event.set() is called in on_stopped callback
@@ -222,6 +231,14 @@ def _sync_transcribe_impl(
         }
 
     finally:
+        # Clean up temp file (do this in finally to ensure it always happens)
+        try:
+            if os.path.exists(audio_file_path):
+                os.unlink(audio_file_path)
+                logger.debug(f"[{trace_id[:8]}] Cleaned up temp file: {audio_file_path}", extra={"trace_id": trace_id})
+        except Exception as e:
+            logger.warning(f"[{trace_id[:8]}] Failed to delete temp file: {e}", extra={"trace_id": trace_id})
+
         # Explicit cleanup of Azure Speech SDK objects to prevent memory leaks
         # These objects hold internal buffers, audio streams, and network connections
         short_trace_id = trace_id[:8]
