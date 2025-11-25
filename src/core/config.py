@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Process isolation settings
     process_pool_size: int = Field(default=4, description="Number of worker processes for process-isolated transcription", alias="PROCESS_POOL_SIZE")
-    process_timeout: int = Field(default=300, description="Timeout in seconds per transcription process", alias="PROCESS_TIMEOUT")
+    process_timeout: int = Field(default=180, description="Timeout in seconds per transcription process (3 minutes)", alias="PROCESS_TIMEOUT")
 
 
 @lru_cache

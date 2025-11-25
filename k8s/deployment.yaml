@@ -36,10 +36,10 @@ spec:
         resources:
           requests:
             cpu: "1500m"     # 1.5 CPU cores
-            memory: "3072Mi" # 3 GB (proportional to 4Gi limit)
+            memory: "4608Mi" # 4.5 GB (proportional to 6Gi limit)
           limits:
             cpu: "2000m"     # 2 CPU cores
-            memory: "4Gi"    # 4 Gigabytes of RAM
+            memory: "6Gi"    # 6 Gigabytes of RAM
         # Lifecycle hooks for graceful shutdown
         lifecycle:
           preStop:
@@ -60,15 +60,15 @@ spec:
         
         # Liveness probe: Detect if the app is completely stuck/deadlocked
         # Uses lightweight /health endpoint to avoid false positives during heavy load
-        # Much more lenient since transcription can take 60+ seconds
+        # Aligned with 180s process timeout: 8 failures × 30s = 4 minutes buffer
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
           initialDelaySeconds: 30
-          periodSeconds: 30        # Check every 30 seconds (was 10)
-          timeoutSeconds: 10       # Allow 10 seconds for response (was 5)
-          failureThreshold: 6      # 6 failures = 3 minutes before restart (was 3)
+          periodSeconds: 30        # Check every 30 seconds
+          timeoutSeconds: 15       # Allow 15 seconds for response (was 10)
+          failureThreshold: 8      # 8 failures = 4 minutes before restart (> 180s timeout)
         
         # Readiness probe: Determine if pod can receive traffic
         # Uses /readiness endpoint to check if service is ready
@@ -78,6 +78,6 @@ spec:
             path: /readiness
             port: 8000
           initialDelaySeconds: 10
-          periodSeconds: 10        # Check every 10 seconds (was 5)
-          timeoutSeconds: 5        # Allow 5 seconds for response (was 3)
-          failureThreshold: 3      # Remove from service after 3 failures (30s)
+          periodSeconds: 10        # Check every 10 seconds
+          timeoutSeconds: 10       # Allow 10 seconds for response (was 5)
+          failureThreshold: 6      # Remove from service after 6 failures (60s)
