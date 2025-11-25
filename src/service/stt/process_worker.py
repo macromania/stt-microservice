@@ -117,12 +117,17 @@ def transcribe_in_process(
 
     try:
         # Import here to avoid loading Azure SDK in parent process
+        import time
+
         from src.service.stt.service import _sync_transcribe_impl
 
         logger.info(
             f"[{short_trace_id}] Calling _sync_transcribe_impl",
             extra={"trace_id": trace_id},
         )
+
+        # Track timing for metrics
+        transcription_start = time.time()
 
         # Execute transcription
         result = _sync_transcribe_impl(
@@ -132,6 +137,8 @@ def transcribe_in_process(
             resource_name=resource_name,
             speech_region=speech_region,
         )
+
+        transcription_time = time.time() - transcription_start
 
         # Convert segments to serializable dicts
         serializable_segments = []
@@ -174,6 +181,8 @@ def transcribe_in_process(
                 "full_text": result["full_text"],
                 "detected_language": result["detected_language"],
                 "speaker_count": result["speaker_count"],
+                "transcription_time": transcription_time,
+                "translation_time": 0.0,  # No translation in process-isolated mode
             },
         }
 

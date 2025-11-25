@@ -414,6 +414,8 @@ async def create_transcription_process_isolated(
         ).inc()
         stt_audio_duration_seconds.observe(result.audio_duration_seconds)
         stt_transcription_confidence.labels(language=result.original_language).set(result.confidence_average)
+        stt_transcription_time.observe(result.transcription_time_seconds)
+        stt_translation_time.observe(result.translation_time_seconds)
 
         logger.info(
             f"[{short_trace_id}] Process-isolated complete: {len(result.segments)} segments, {result.original_language} → en, execution_time={execution_time:.2f}s",

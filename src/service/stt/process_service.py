@@ -191,6 +191,11 @@ class ProcessIsolatedTranscriptionService:
             # Calculate average confidence
             avg_confidence = sum(seg.confidence for seg in segments) / len(segments) if segments else 0.0
 
+            # Extract timing from worker result
+            transcription_time = data.get("transcription_time", 0.0)
+            translation_time = data.get("translation_time", 0.0)
+            processing_time = transcription_time + translation_time
+
             # Build TranscriptionResponse
             response = TranscriptionResponse(
                 original_text=data["full_text"],
@@ -199,9 +204,9 @@ class ProcessIsolatedTranscriptionService:
                 segments=segments,
                 speaker_count=data["speaker_count"],
                 audio_duration_seconds=audio_duration,
-                processing_time_seconds=0.0,  # TODO: Add timing from worker
-                transcription_time_seconds=0.0,  # TODO: Add timing from worker
-                translation_time_seconds=0.0,  # No translation yet
+                processing_time_seconds=processing_time,
+                transcription_time_seconds=transcription_time,
+                translation_time_seconds=translation_time,
                 confidence_average=avg_confidence,
             )
 
