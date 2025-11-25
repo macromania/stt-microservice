@@ -73,20 +73,24 @@ const THINK_TIME_MIN = parseFloat(__ENV.THINK_TIME_MIN || '1');
 const THINK_TIME_MAX = parseFloat(__ENV.THINK_TIME_MAX || '3');
 const VERBOSE_ERRORS = __ENV.VERBOSE_ERRORS !== 'false';
 const LOG_SAMPLE_RATE = parseInt(__ENV.LOG_SAMPLE_RATE || '10');
+const ENDPOINT = '/transcriptions';
 
 // Load pattern configuration
 const getLoadConfig = () => {
-  // Use test mode preset if valid
-  if (TEST_MODES[TEST_MODE]) {
-    return TEST_MODES[TEST_MODE];
-  }
+  // Start with test mode preset if valid, otherwise use defaults
+  let baseConfig = TEST_MODES[TEST_MODE] || {
+    vus: 100,
+    rampUp: '10m',
+    steady: '5m',
+    rampDown: '5m'
+  };
   
-  // Use custom configuration from env vars
+  // Environment variables ALWAYS override preset values
   return {
-    vus: parseInt(__ENV.MAX_VUS || '100'),
-    rampUp: __ENV.RAMP_UP_DURATION || '10m',
-    steady: __ENV.STEADY_DURATION || '5m',
-    rampDown: __ENV.RAMP_DOWN_DURATION || '5m'
+    vus: parseInt(__ENV.MAX_VUS || baseConfig.vus.toString()),
+    rampUp: __ENV.RAMP_UP_DURATION || baseConfig.rampUp,
+    steady: __ENV.STEADY_DURATION || baseConfig.steady,
+    rampDown: __ENV.RAMP_DOWN_DURATION || baseConfig.rampDown
   };
 };
 
@@ -327,7 +331,7 @@ export function setup() {
   console.log('');
   
   console.log('API Configuration:');
-  console.log(`  Endpoint: ${BASE_URL}/transcriptions`);
+  console.log(`  Endpoint: ${BASE_URL}${ENDPOINT}`);
   console.log(`  Language: ${LANGUAGE}`);
   console.log(`  Timeout: ${REQUEST_TIMEOUT_MS}ms (${REQUEST_TIMEOUT_MS / 1000}s)`);
   console.log('');
@@ -405,7 +409,7 @@ export default function (data) {
   // Send request
   const startTime = Date.now();
   const response = http.post(
-    `${BASE_URL}/transcriptions/process-isolated`,
+    `${BASE_URL}${ENDPOINT}`,
     formData.body(),
     {
       headers: {

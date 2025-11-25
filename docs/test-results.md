@@ -597,3 +597,136 @@ stt_load_test ✓ [======================================] 000/100 VUs  20m0s
 running (20m08.6s), 000/100 VUs, 3829 complete and 6 interrupted iterations
 stt_load_test ✓ [======================================] 000/100 VUs  20m0s
 ```
+
+## Local Cluster - 1 Pod with Isloated Processing
+
+- 1 Pod
+- NodePort Service
+- Load Balanced Requests
+- requests:
+  - cpu: "1500m"     # 1.5 CPU cores
+  - memory: "4608Mi" # 4.5 GB
+- limits:
+  - cpu: "2000m"     # 2 CPU cores
+  - memory: "6Gi"    # 6 Gigabytes of RAM
+- date: 2025-11-25 14:27:07
+
+**Findings from Two Separate Test Runs:**
+
+1. **Memory is stable** - After the initial ramp-up (around 14:30), memory plateaus and remains consistent throughout both test runs
+2. **Natural cleanup is working** - The "Avg Memory per Worker" graph shows memory dropping from ~256MB back down to ~64MB, indicating Python's garbage collector is functioning properly
+3. **No memory leaks** - The flat line in "Python Memory vs K8s Limit" after 14:40 shows memory isn't accumulating over time
+4. **Pod resources are stable** - Both CPU and container memory remain constant
+
+![Isolated Processing Single Worker Pod 50 VUs](./images/isolated-process-test-1.png)
+
+
+```bash
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=1m1s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 5195    4.327396/s
+    checks_succeeded...: 100.00% 5195 out of 5195
+    checks_failed......: 0.00%   0 out of 5195
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=249.236845 med=184.294922 p(90)=522.419922 p(95)=554.607422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 1046    0.87131/s
+    segment_count..................: min=1         avg=1.055823   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=135.652551 med=106        p(90)=268        p(95)=291        p(99)=414        max=414       
+    transcription_success..........: 100.00% 1039 out of 1039
+    translation_length.............: min=36        avg=135.652551 med=106        p(90)=268        p(95)=291        p(99)=414        max=414       
+
+    HTTP
+    http_req_duration..............: min=1.89s     avg=33.96s     med=38.87s     p(90)=54.72s     p(95)=1m1s       p(99)=1m7s       max=2m42s     
+      { expected_response:true }...: min=1.89s     avg=33.96s     med=38.87s     p(90)=54.72s     p(95)=1m1s       p(99)=1m7s       max=2m42s     
+    http_req_failed................: 0.00%   0 out of 1039
+    http_reqs......................: 1039    0.865479/s
+
+    EXECUTION
+    iteration_duration.............: min=3.38s     avg=36.16s     med=40.95s     p(90)=57.39s     p(95)=1m3s       p(99)=1m10s      max=2m44s     
+    iterations.....................: 1038    0.864646/s
+    vus............................: 1       min=0            max=50
+    vus_max........................: 50      min=50           max=50
+
+    NETWORK
+    data_received..................: 1.0 MB  858 B/s
+    data_sent......................: 268 MB  223 kB/s
+
+running (20m00.5s), 00/50 VUs, 1038 complete and 8 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  20m0s
+```
+
+
+### Second Test
+
+![Isolated Processing Single Worker Pod 50 VUs - Second Test](./images/isolated-process-test-2.png)
+
+```bash
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=1m18s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 3660    3.027488/s
+    checks_succeeded...: 100.00% 3660 out of 3660
+    checks_failed......: 0.00%   0 out of 3660
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=254.786581 med=196.326172 p(90)=516.326172 p(95)=554.607422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 751     0.621214/s
+    segment_count..................: min=0         avg=0          med=0          p(90)=0          p(95)=0          p(99)=0          max=0         
+    transcription_success..........: 100.00% 732 out of 732
+
+    HTTP
+    http_req_duration..............: min=586.63ms  avg=48.53s     med=53.9s      p(90)=1m16s      p(95)=1m18s      p(99)=1m25s      max=2m38s     
+      { expected_response:true }...: min=586.63ms  avg=48.53s     med=53.9s      p(90)=1m16s      p(95)=1m18s      p(99)=1m25s      max=2m38s     
+    http_req_failed................: 0.00%   0 out of 732
+    http_reqs......................: 732     0.605498/s
+
+    EXECUTION
+    iteration_duration.............: min=2.22s     avg=50.76s     med=56s        p(90)=1m18s      p(95)=1m20s      p(99)=1m27s      max=2m41s     
+    iterations.....................: 730     0.603843/s
+    vus............................: 1       min=0          max=50
+    vus_max........................: 50      min=50         max=50
+
+    NETWORK
+    data_received..................: 354 kB  293 B/s
+    data_sent......................: 196 MB  162 kB/s
+
+running (20m08.9s), 00/50 VUs, 730 complete and 21 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  20m0s
+```

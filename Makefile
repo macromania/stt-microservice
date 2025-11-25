@@ -21,16 +21,14 @@ run-api: ## Run the FastAPI application (development mode with auto-reload)
 	@poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 
 
-load-test: ## Run load test (will prompt for service URL)
-	@if [ -z "$(BASE_URL)" ]; then \
-		echo ""; \
-		echo "📋 Enter the service URL from 'make local-api' output:"; \
-		read -p "URL: " url; \
-		$(MAKE) load-test BASE_URL=$$url; \
-	else \
-		echo "Starting load test with BASE_URL=$(BASE_URL)..."; \
-		./scripts/run-load-test.sh -e BASE_URL=$(BASE_URL) load-test.js; \
+load-test: ## Run load test (requires .env.k6)
+	@if [ ! -f ".env.k6" ]; then \
+		echo "Error: .env.k6 not found"; \
+		echo "Please create .env.k6 with your configuration"; \
+		echo "See .env.k6.example for reference"; \
+		exit 1; \
 	fi
+	@./scripts/run-load-test.sh load-test.js
 
 # Local Kubernetes Cluster
 setup-local-cluster: ## Setup Minikube cluster with Prometheus and Grafana
