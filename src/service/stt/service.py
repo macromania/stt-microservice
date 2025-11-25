@@ -12,6 +12,7 @@ from datetime import datetime
 import gc
 import logging
 from pathlib import Path
+import threading
 import time
 from typing import Any
 from uuid import uuid4
@@ -138,10 +139,10 @@ def _sync_transcribe_impl(
 
         connection = Connection.from_recognizer(transcriber)
 
-        # Callback state with queue-based pattern
+        # Callback state with queue-based pattern and Event for completion
         result_queue = Queue()
         detected_language = azure_language or "en-US"
-        done = False
+        done_event = threading.Event()  # Use Event for efficient blocking wait
 
         def on_transcribed(evt):
             nonlocal detected_language, result_queue
@@ -165,8 +166,8 @@ def _sync_transcribe_impl(
                 )
 
         def on_stopped(evt):
-            nonlocal done
-            done = True
+            nonlocal done_event
+            done_event.set()  # Signal completion immediately
 
         # Connect callbacks
         transcriber.transcribed.connect(on_transcribed)
@@ -182,12 +183,13 @@ def _sync_transcribe_impl(
         # File descriptor is already open, so SDK can still read. Inode freed immediately.
         Path(audio_file_path).unlink(missing_ok=True)
 
-        # Wait for completion
+        # Wait for completion using Event (efficient blocking wait)
+        # This blocks the thread until done_event.set() is called in on_stopped callback
         timeout = 300
-        elapsed = 0
-        while not done and elapsed < timeout:
-            time.sleep(0.5)
-            elapsed += 0.5
+        if not done_event.wait(timeout=timeout):
+            # Timeout occurred
+            logger.error(f"[{short_trace_id}] Transcription timeout after {timeout}s", extra={"trace_id": trace_id})
+            raise TimeoutError(f"Transcription timeout after {timeout}s")
 
         short_trace_id = trace_id[:8]
         logger.info(f"[{short_trace_id}] Stopping transcription...", extra={"trace_id": trace_id})
@@ -273,7 +275,7 @@ def _sync_transcribe_impl(
         try:
             del result_queue
             del segments
-            del done
+            del done_event
             del detected_language
         except (NameError, UnboundLocalError):
             pass
