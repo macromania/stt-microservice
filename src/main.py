@@ -30,6 +30,19 @@ logger.info("Logging configured successfully.")
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup code here
+    logger.info("Initializing services...")
+
+    # Eagerly initialize process pool to avoid delay on first request
+    # This ensures the pool is ready before any traffic arrives
+    try:
+        from src.api.stt import get_process_service
+
+        service = get_process_service()
+        logger.info("Process pool initialized successfully during startup")
+    except Exception as e:
+        logger.error(f"Failed to initialize process pool: {e}")
+        # Don't fail startup - pool will be initialized on first request as fallback
+
     logger.info("Application startup completed")
 
     yield
