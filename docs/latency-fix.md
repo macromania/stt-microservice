@@ -3,6 +3,7 @@
 ## Problem Identified
 
 Massive latency was observed in transcription processing:
+
 - Small audio files (0.1-0.7 MB) taking **68-92 seconds** to process
 - 296.5 KB file taking **12.3 seconds**
 - Memory was stable, but throughput was extremely poor
@@ -12,6 +13,7 @@ Massive latency was observed in transcription processing:
 The issue was in `/workspaces/stt-microservice/src/service/stt/service.py` in the `_sync_transcribe_impl()` function.
 
 **Bad Pattern (Before):**
+
 ```python
 done = False
 
@@ -30,6 +32,7 @@ while not done and elapsed < timeout:
 ```
 
 **Problems:**
+
 1. **Polling with 0.5s sleep intervals** - artificially adds latency
 2. The Azure SDK calls callbacks immediately when events occur
 3. But we only check the `done` flag every 0.5 seconds
@@ -41,6 +44,7 @@ while not done and elapsed < timeout:
 ### 1. Replaced inefficient polling with **threading.Event**
 
 **Good Pattern (After):**
+
 ```python
 done_event = threading.Event()
 is_stopped = False
@@ -61,6 +65,7 @@ is_stopped = True
 ```
 
 **Benefits:**
+
 1. **Zero artificial latency** - thread wakes up IMMEDIATELY when `done_event.set()` is called
 2. **Efficient blocking** - thread is parked by OS, no CPU cycles wasted
 3. **Proper timeout handling** - Event.wait() returns False if timeout occurs
@@ -68,6 +73,7 @@ is_stopped = True
 ### 2. Removed blocking cleanup operations
 
 **Old cleanup (BAD):**
+
 ```python
 # Double-stop (causes SDK errors)
 transcriber.stop_transcribing_async().get()  # BLOCKS
@@ -83,6 +89,7 @@ gc.collect()  # BLOCKS
 ```
 
 **New cleanup (GOOD):**
+
 ```python
 # Minimal cleanup - only disconnect event handlers
 if not is_stopped:
@@ -98,6 +105,7 @@ transcriber.transcribed.disconnect_all()
 ```
 
 **Benefits:**
+
 1. **No blocking delays** - removed all `time.sleep()` and `.get()` calls
 2. **No SDK state errors** - prevents double-stop and connection closing conflicts
 3. **Faster cleanup** - process exit is instant and guaranteed
@@ -111,57 +119,6 @@ transcriber.transcribed.disconnect_all()
 - No SDK state errors (`SPXERR_CHANGE_CONNECTION_STATUS_NOT_ALLOWED`)
 - Memory stability maintained (process isolation handles cleanup)
 - Faster worker process termination
-
-## Testing Recommendations
-
-1. **Run load test** to verify improved throughput:
-   ```bash
-   ./scripts/run-load-test.sh -e TEST_MODE=smoke
-   ```
-
-2. **Monitor metrics:**
-   - `process_execution_time_seconds` - should drop dramatically
-   - `stt_transcription_time_seconds` - should reflect actual SDK time
-   - Request throughput should increase 10-15x
-
-3. **Check for regressions:**
-   - Memory should remain stable
-   - No errors in transcription quality
-   - Proper timeout handling still works
-
-## Deployment
-
-1. **Rebuild Docker image:**
-   ```bash
-   cd src
-   docker build -t stt-microservice:latest .
-   ```
-
-2. **Update Kubernetes deployment:**
-   ```bash
-   kubectl rollout restart deployment/stt-service
-   ```
-
-3. **Monitor logs** for improved timing:
-   ```bash
-   kubectl logs -f deployment/stt-service | grep "execution_time"
-   ```
-
-## Files Modified
-
-- `/workspaces/stt-microservice/src/service/stt/service.py`
-  - Added `threading` import for Event-based signaling
-  - Replaced `done` flag with `done_event` (threading.Event)
-  - Replaced polling loop with `done_event.wait(timeout)` - zero latency wait
-  - Added `is_stopped` flag to prevent double-stop errors
-  - Removed ALL blocking operations in cleanup:
-    - No `.get()` calls on async operations
-    - No `time.sleep()` delays
-    - No manual connection closing
-    - No manual resource deletion
-    - No `gc.collect()`
-  - Minimal cleanup: only disconnect event handlers
-  - Rely on process exit for all other cleanup
 
 ## Related Documentation
 

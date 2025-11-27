@@ -238,14 +238,17 @@ Tracemalloc provides **source code location** tracking - showing WHERE in your c
 Must be called before using other tracemalloc endpoints.
 
 **Query Parameters:**
+
 - `frames` (int, default=25): Number of call stack frames to capture (1-100)
 
 **Example:**
+
 ```bash
 curl -X POST "http://localhost:8000/debug/tracemalloc/start?frames=25"
 ```
 
 **Response:**
+
 ```json
 {
   "status": "started",
@@ -255,14 +258,17 @@ curl -X POST "http://localhost:8000/debug/tracemalloc/start?frames=25"
 ```
 
 ### 1. GET `/debug/tracemalloc/status`
+
 Check if tracemalloc is running and view available snapshots.
 
 **Example:**
+
 ```bash
 curl "http://localhost:8000/debug/tracemalloc/status"
 ```
 
 **Response:**
+
 ```json
 {
   "is_tracing": true,
@@ -274,18 +280,22 @@ curl "http://localhost:8000/debug/tracemalloc/status"
 ```
 
 ### 2. GET `/debug/tracemalloc/top`
+
 Get top memory allocations **with source code location**.
 
 **Query Parameters:**
+
 - `top_n` (int, default=10): Number of top allocations (1-100)
 - `group_by` (string, default="lineno"): Group by `lineno` or `filename`
 
 **Example:**
+
 ```bash
 curl "http://localhost:8000/debug/tracemalloc/top?top_n=10&group_by=lineno"
 ```
 
 **Response:**
+
 ```json
 {
   "group_by": "lineno",
@@ -308,17 +318,21 @@ curl "http://localhost:8000/debug/tracemalloc/top?top_n=10&group_by=lineno"
 ```
 
 ### 3. POST `/debug/tracemalloc/snapshot`
+
 Take a memory snapshot for later comparison.
 
 **Query Parameters:**
+
 - `name` (string, required): Snapshot name (e.g., "before_test", "after_request")
 
 **Example:**
+
 ```bash
 curl -X POST "http://localhost:8000/debug/tracemalloc/snapshot?name=before_test"
 ```
 
 **Response:**
+
 ```json
 {
   "status": "created",
@@ -330,20 +344,24 @@ curl -X POST "http://localhost:8000/debug/tracemalloc/snapshot?name=before_test"
 ```
 
 ### 4. GET `/debug/tracemalloc/compare`
+
 Compare two snapshots to see memory growth/reduction with **source locations**.
 
 **Query Parameters:**
+
 - `snapshot1` (string, required): First snapshot name
 - `snapshot2` (string, required): Second snapshot name
 - `top_n` (int, default=10): Number of top differences
 - `group_by` (string, default="lineno"): Group by `lineno` or `filename`
 
 **Example:**
+
 ```bash
 curl "http://localhost:8000/debug/tracemalloc/compare?snapshot1=before_test&snapshot2=after_test&top_n=10"
 ```
 
 **Response:**
+
 ```json
 {
   "snapshot1": "before_test",
@@ -364,17 +382,21 @@ curl "http://localhost:8000/debug/tracemalloc/compare?snapshot1=before_test&snap
 ```
 
 ### 5. GET `/debug/tracemalloc/traceback`
+
 Get detailed call stack traceback for top allocations.
 
 **Query Parameters:**
+
 - `top_n` (int, default=5): Number of top allocations (1-50)
 
 **Example:**
+
 ```bash
 curl "http://localhost:8000/debug/tracemalloc/traceback?top_n=3"
 ```
 
 **Response:**
+
 ```json
 {
   "top_allocations": [
@@ -401,17 +423,21 @@ curl "http://localhost:8000/debug/tracemalloc/traceback?top_n=3"
 ```
 
 ### 6. DELETE `/debug/tracemalloc/snapshot/{name}`
+
 Delete a stored snapshot.
 
 **Example:**
+
 ```bash
 curl -X DELETE "http://localhost:8000/debug/tracemalloc/snapshot/before_test"
 ```
 
 ### 7. POST `/debug/tracemalloc/stop`
+
 Stop tracemalloc tracking.
 
 **Example:**
+
 ```bash
 curl -X POST "http://localhost:8000/debug/tracemalloc/stop"
 ```
@@ -496,4 +522,3 @@ curl "http://localhost:8000/debug/tracemalloc/traceback?top_n=10"
 ✅ **Memory attribution** - Know exactly which line of code allocated memory  
 
 This is **more detailed than just gc** and gives you the same capabilities as running `tracemalloc` directly in your code, but exposed via REST API.
-

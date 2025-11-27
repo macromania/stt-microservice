@@ -1,15 +1,6 @@
-# Additional C++ Memory Release Improvements
+# Additional Memory Release Improvements
 
-## Current Implementation Status ✅
-
-Your `service.py` already implements excellent cleanup! Current best practices in place:
-
-1. ✅ Disconnect event handlers (transcribed, session_stopped, canceled)
-2. ✅ Delete callback functions  
-3. ✅ Close Azure credentials
-4. ✅ Explicitly delete SDK objects
-5. ✅ Force garbage collection with `gc.collect()`
-6. ✅ Use single-use thread pool per request
+While the process-isolated endpoint effectively prevents memory leaks by isolating native memory allocations in separate processes, there are additional improvements you can implement in your transcription code to further reduce memory usage and ensure timely release of resources.
 
 ## Recommended Additional Improvements
 
@@ -352,37 +343,3 @@ If implementing incrementally, prioritize:
 3. **MEDIUM PRIORITY**: Add Connection.close() for explicit network cleanup
 4. **LOW PRIORITY**: Property collection cleanup (likely minimal impact)
 5. **OPTIONAL**: Connection pooling (only if latency is critical)
-
----
-
-## Testing Memory Release
-
-After implementing, verify with:
-
-```bash
-# Run load test and monitor memory
-kubectl top pod stt-microservice-xxx --watch
-
-# Or locally
-watch -n 1 'ps aux | grep python | grep -v grep'
-```
-
-**Expected result**: 
-- Memory should stabilize after 10-20 requests
-- No continuous growth beyond baseline + active request memory
-
----
-
-## Summary
-
-Your current implementation is **already excellent** (90% of best practices). The additional improvements above will:
-
-- **Ensure complete event handler cleanup** (eliminates all circular references)
-- **Explicitly release network resources** (TCP connections)
-- **Provide development visibility** (debug endpoints)
-
-**Estimated additional memory savings**: 50-100MB per request cycle (mainly from network buffers and event handlers).
-
----
-
-**Last Updated**: 2025-01-24

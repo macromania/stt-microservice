@@ -96,7 +96,7 @@ For native C++ libraries, you must **manually break reference cycles** and **exp
 
 ## Implementation Guide
 
-### ✅ **Solution 1: Disconnect Event Handlers IMMEDIATELY**
+### **Solution 1: Disconnect Event Handlers IMMEDIATELY**
 
 ```python
 try:
@@ -113,7 +113,7 @@ try:
     # Wait for completion...
     
 finally:
-    # ✅ CRITICAL: Disconnect ALL event handlers to break circular refs
+    # CRITICAL: Disconnect ALL event handlers to break circular refs
     if transcriber is not None:
         try:
             # Stop transcription first
@@ -137,7 +137,7 @@ finally:
 
 ---
 
-### ✅ **Solution 2: Delete Callback Functions**
+### **Solution 2: Delete Callback Functions**
 
 ```python
 def _sync_transcribe():
@@ -165,7 +165,7 @@ def _sync_transcribe():
 
 ---
 
-### ✅ **Solution 3: Force Immediate Garbage Collection**
+### **Solution 3: Force Immediate Garbage Collection**
 
 ```python
 finally:
@@ -184,7 +184,7 @@ finally:
 
 ---
 
-### ✅ **Solution 4: Use Connection.close() for Network Resources**
+### **Solution 4: Use Connection.close() for Network Resources**
 
 The SDK provides `Connection` class for explicit resource management:
 
@@ -213,7 +213,7 @@ finally:
 
 ---
 
-### ✅ **Solution 5: Avoid Keeping Event Result References**
+### **Solution 5: Avoid Keeping Event Result References**
 
 ```python
 # ❌ BAD: Keeping event object references
@@ -245,7 +245,7 @@ def on_transcribed(evt):
 
 ---
 
-### ✅ **Solution 6: Per-Request Credential Management**
+### **Solution 6: Per-Request Credential Management**
 
 ```python
 # ❌ BAD: Long-lived credential object
@@ -275,39 +275,15 @@ async def process_audio(...):
 
 ---
 
-### ✅ **Solution 7: Single-Use Thread Pool**
+## Sample Implementation
+
+`service.py` already implements most of the ideas above. Here’s a consolidated example:
 
 ```python
-# ❌ BAD: Shared thread pool retains objects in thread-local storage
-executor = ThreadPoolExecutor(max_workers=4)  # Reused across requests
-
-# ✅ GOOD: Create fresh executor per request
-async def process_audio(...):
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"stt-{trace_id[:8]}")
-    try:
-        result = await loop.run_in_executor(executor, _sync_transcribe)
-        return result
-    finally:
-        executor.shutdown(wait=True)  # ✅ Ensures thread cleanup
-        del executor
-        gc.collect()  # Clean up thread-local storage
-```
-
-**Why this works**: Thread-local storage can hold references to SDK objects. Fresh executors guarantee clean state.
-
----
-
-## Complete Implementation (Your Current Code - Already Excellent!)
-
-Your `service.py` already implements most best practices:
-
-```python
-# src/service/stt/service.py (lines 198-366)
-
 def _sync_transcribe() -> dict[str, Any]:
     """Synchronous transcription with proper C++ resource cleanup."""
     
-    # ✅ Initialize objects for cleanup tracking
+    # Initialize objects for cleanup tracking
     speech_config = None
     audio_config = None
     transcriber = None
@@ -370,15 +346,6 @@ def _sync_transcribe() -> dict[str, Any]:
         
         # ✅ Force immediate GC to release native resources
         gc.collect()
-
-# ✅ Use single-use thread pool executor
-executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"stt-{trace_id[:8]}")
-try:
-    result = await loop.run_in_executor(executor, _sync_transcribe)
-finally:
-    executor.shutdown(wait=True)
-    del executor
-    gc.collect()
 ```
 
 ---
@@ -470,79 +437,3 @@ objgraph.show_backrefs(
     filename='transcriber-refs.png'
 )
 ```
-
----
-
-## Summary: Key Takeaways
-
-### 🔴 **Root Cause**
-
-C++ memory managed through Python bindings doesn't release until Python objects are garbage collected. Circular references (especially from callbacks) prevent timely collection.
-
-### ✅ **Solution Pattern**
-
-1. **Disconnect all event handlers** immediately after use
-2. **Delete callback functions** to break closures  
-3. **Explicitly `del` SDK objects** to hint GC
-4. **Call `gc.collect()`** to force immediate finalization
-5. **Close credentials** to release HTTP clients
-6. **Use single-use thread pools** to avoid thread-local retention
-7. **Extract data from events immediately** (don't keep result references)
-
-### 📊 **Expected Impact**
-
-- **Before**: ~500MB-1GB memory accumulation after 100 requests
-- **After**: Stable memory at ~200-300MB (baseline + active request)
-- **C++ resources released**: Within 1-2 seconds instead of minutes
-
-### 🎯 **Your Code Status**
-
-✅ **Already implements 90% of best practices!**  
-Your `service.py` (lines 318-366) has excellent cleanup already. Ensure:
-
-- All event signals are disconnected
-- Credential is closed
-- Single-use thread pool is enforced
-
----
-
-## C++ SDK Internals (For Deep Debugging)
-
-### Handle Release Chain
-
-```
-Python: del transcriber
-  ↓
-Python GC: transcriber.__del__()
-  ↓
-_Handle.__del__()
-  ↓
-_sdk_lib.recognizer_handle_release(handle)  # ctypes call
-  ↓
-libMicrosoft.CognitiveServices.Speech.core.so: recognizer_handle_release()
-  ↓
-C++: delete RecognizerImpl;  // Frees audio buffers, network sockets, etc.
-```
-
-### If This Chain Breaks
-
-Memory leak occurs if:
-
-1. Python object not deleted (circular reference)
-2. `__del__` not called (GC not triggered)
-3. C++ `release` function not called (SDK bug - rare)
-
-**Your cleanup code ensures #1 and #2 are handled.**
-
----
-
-## Further Reading
-
-- [Azure Speech SDK GitHub Issues - Memory Leaks](https://github.com/Azure-Samples/cognitive-services-speech-sdk/issues?q=memory+leak)
-- [Python C Extensions Memory Management](https://docs.python.org/3/extending/extending.html#reference-counts)
-- [Python Garbage Collection Deep Dive](https://devguide.python.org/internals/garbage-collector/)
-
----
-
-**Last Updated**: 2025-01-24  
-**SDK Version Analyzed**: azure-cognitiveservices-speech 1.47.0

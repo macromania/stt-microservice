@@ -1,10 +1,10 @@
-## Review: How Process-Level Isolation Solves Native Memory Leaks
+# Review: How Process-Level Isolation Solves Native Memory Leaks
 
-Let me explain the fundamental difference between threading and process isolation, and why it's the only real solution for native memory leaks.
+This documentation explains the fundamental difference between threading and process isolation, and why process isolation solution helps dealing with native memory leaks.
 
-### 🔍 Current Architecture (Thread-Based)
+## Transcriptions Endpoint Architecture (Thread-Based)
 
-**What you have now:**
+**What is implemented:**
 
 ```python
 # In TranscriptionService._transcribe_async()
@@ -19,10 +19,10 @@ executor.shutdown(wait=True)
 - Native memory (C++ allocations from Azure SDK) belongs to the **process**, not the thread
 - When thread ends: ✅ Thread resources freed
 - When thread ends: ❌ Native memory **stays in process heap**
-- After 10 requests: Process has 2.6 GB leaked native memory
+- After ~10 requests: Process has ~2.6 GB leaked native memory
 - Python's GC: Can't see or touch native memory
 
-### ✅ Process-Level Isolation Solution
+## Process-Level Isolation with Recycling Solution (transcriptions/process-isolated)
 
 **What it does:**
 
@@ -34,6 +34,10 @@ process = Process(target=_sync_transcribe, args=(...))
 process.start()
 result = process.join()  # Wait for completion
 # Process terminates → OS reclaims ALL memory (Python + native)
+
+# From main.py
+# Periodically restart process pool to reclaim memory
+service.restart_if_idle()
 ```
 
 **Why it works:**
@@ -41,10 +45,13 @@ result = process.join()  # Wait for completion
 - Each transcription runs in **isolated process**
 - Process has its own memory space (separate from parent)
 - When process exits: OS **forcibly reclaims ALL memory**
-  - Python heap ✅
-  - Native C++ allocations ✅
-  - Kernel buffers ✅
-  - Everything ✅
+  - Python heap
+  - Native C++ allocations
+  - Kernel buffers
+  - Anything else that can be claimed
+- When process pool recycles workers:
+  - Old processes die → memory reclaimed
+  - New processes start fresh → zero memory
 
 ### 📊 Memory Behavior Comparison
 
@@ -58,155 +65,33 @@ Request 3: Parent Process 620MB → 880MB (leaked another 260MB)
 Request 10: Parent Process → 2.7GB → OOMKilled
 ```
 
-#### **Process Isolation:**
+#### **Process Isolation with Process Pool Recycling**
 
 ```
 Request 1: 
   - Parent Process: 100MB (stable)
-  - Child Process: 100MB → 360MB → EXIT → OS reclaims 360MB
+  - Process Pool Worker: 100MB → 360MB → Completes → Worker stays alive
   - Parent remains: 100MB ✅
 
 Request 2:
-  - Parent Process: 100MB (stable)
-  - Child Process: 100MB → 360MB → EXIT → OS reclaims 360MB
+  - Parent Process: 100MB (stable)  
+  - Same Pool Worker: 360MB → 620MB → Completes → Worker stays alive
   - Parent remains: 100MB ✅
 
-Request 10:
-  - Parent Process: 100MB (stable) ✅
-  - Each child dies, memory fully reclaimed ✅
+Request 5 (worker accumulates memory):
+  - Parent Process: 100MB (stable)
+  - Pool Worker: 1.4GB → Completes → Worker enters idle state
+  - Parent remains: 100MB ✅
+
+After 5 minutes idle time:
+  - Parent Process: 100MB (stable)
+  - Idle Detection: Worker has been idle > threshold
+  - WORKER RECYCLED → OS reclaims 1.4GB
+  - New Worker starts: 100MB fresh ✅
+  - Parent remains: 100MB ✅
+
+Request 6:
+  - Parent Process: 100MB (stable)
+  - New Pool Worker: 100MB → 360MB → Completes → Worker stays alive
+  - Memory cycle resets ✅
 ```
-
-### 🛠️ Implementation Plan
-
-**Plan Overview:**
-
-1. **Create Process-Safe Transcription Wrapper**
-   - Serialize input (file path, config)
-   - Use multiprocessing Queue for result passing
-   - Handle process lifecycle
-
-2. **Implement Timeout & Error Handling**
-   - Process timeout (kill if hangs)
-   - Exception propagation from child
-   - Resource cleanup on failure
-
-3. **Add Process Pool Management**
-   - Limit concurrent processes
-   - Queue requests when at capacity
-   - Monitor process health
-
-4. **Update Service Architecture**
-   - New `ProcessIsolatedTranscriptionService` class
-   - Backward compatible with existing API
-   - Optional feature flag to enable/disable
-
-### 📝 Detailed Implementation Plan
-
-#### **Task 1: Create Process-Safe Wrapper Module**
-
-Create `src/service/stt/process_worker.py`:
-
-- `transcribe_in_process()` - Main entry point
-- Serializable input/output with pickle
-- Queue-based IPC for results
-- Exception marshaling back to parent
-
-#### **Task 2: Implement Process Manager**
-
-Create `src/service/stt/process_manager.py`:
-
-- `ProcessTranscriptionManager` class
-- Process pool with max workers limit
-- Timeout enforcement (kill zombie processes)
-- Health monitoring and auto-recovery
-
-#### **Task 3: Create New Service Class**
-
-Update service.py:
-
-- `ProcessIsolatedTranscriptionService` (new)
-- Delegates to process manager
-- Same interface as `TranscriptionService`
-- Configurable via environment variable
-
-#### **Task 4: API Integration**
-
-Update stt.py:
-
-- Feature flag: `USE_PROCESS_ISOLATION=true/false`
-- Conditional service instantiation
-- Fallback to thread-based for compatibility
-
-#### **Task 5: Add Monitoring**
-
-Enhance debug.py:
-
-- Process pool stats endpoint
-- Memory tracking per-process
-- Process lifecycle metrics
-
-#### **Task 6: Testing & Validation**
-
-- Load test with process isolation
-- Memory growth measurement
-- Failure scenario testing
-
-### ⚠️ Trade-offs to Consider
-
-**Pros:**
-
-- ✅ **100% memory isolation** - OS guarantees cleanup
-- ✅ **Crash isolation** - Child crash doesn't kill parent
-- ✅ **Solves native leaks** - No Python code changes needed
-- ✅ **Predictable memory** - Parent stays constant
-
-**Cons:**
-
-- ❌ **Slower startup** - Process spawn overhead (~50-200ms)
-- ❌ **IPC overhead** - Serialization of data
-- ❌ **No shared memory** - Each process loads SDK separately
-- ❌ **More complex** - Process management, error handling
-
-### 🎯 Expected Results
-
-**Before (Thread-based):**
-
-```
-10 requests → 2.6GB leaked → OOM
-```
-
-**After (Process-isolation):**
-
-```
-10 requests → Parent: 100MB (stable)
-1000 requests → Parent: 100MB (stable)
-Infinite requests → Parent: 100MB (stable) ✅
-```
-
-### 💡 Alternative: Hybrid Approach
-
-**Best of both worlds:**
-
-```python
-class HybridTranscriptionService:
-    def __init__(self):
-        self.request_count = 0
-        self.max_requests_per_process = 5  # Recycle after N requests
-        
-    async def process_audio(self, ...):
-        self.request_count += 1
-        
-        if self.request_count <= self.max_requests_per_process:
-            # Fast path: use thread
-            return await self._thread_based_transcribe(...)
-        else:
-            # Cleanup path: use process
-            # After this, restart the service
-            return await self._process_based_transcribe(...)
-```
-
-This gives you:
-
-- Fast performance (thread-based for first N requests)
-- Periodic memory cleanup (process-based + service restart)
-- Gradual degradation instead of sudden OOM

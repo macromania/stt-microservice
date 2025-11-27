@@ -37,7 +37,29 @@ If not using the DevContainer, install these tools manually on your host:
 
 ### One-Time Setup
 
-#### 1. Download LibriSpeech Dataset
+#### 1. Provision Azure Resources
+
+Set up Azure AI Foundry resources and authentication:
+
+```bash
+make provision
+```
+
+This interactive script:
+
+- Creates Azure AI Foundry resource and project
+- Configures RBAC permissions for your user
+- Generates `.env` file with Azure credentials
+
+The `.env` file contains:
+
+- `STT_AZURE_SPEECH_RESOURCE_NAME`: Your Azure AI Foundry resource name
+- `STT_AZURE_SPEECH_REGION`: Azure region (e.g., `eastus`)
+- Other application settings
+
+The API loads these settings at startup to authenticate with Azure Speech Service using DefaultAzureCredential (no API keys needed). The `.env` file is also used by Kubernetes as a ConfigMap during deployment.
+
+#### 2. Download LibriSpeech Dataset
 
 Generate the audio files list for load testing (~350MB download):
 
@@ -47,7 +69,7 @@ make generate-audio-list
 
 This downloads the LibriSpeech test-clean dataset (2,620 audio files) and creates `samples/audio-files.json`.
 
-#### 2. Deploy Local Minikube Cluster
+#### 3. Deploy Local Minikube Cluster
 
 Deploy the local Minikube cluster with monitoring infrastructure:
 
@@ -62,7 +84,7 @@ This sets up:
 - Prometheus for metrics collection
 - Grafana for visualization
 
-#### 3. Configure Load Test Settings
+#### 4. Configure Load Test Settings
 
 Create and configure your load test settings:
 

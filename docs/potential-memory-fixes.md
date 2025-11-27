@@ -62,7 +62,7 @@ def _sync_transcribe() -> dict[str, Any]:
 
 ### **Fix 2: Service Lifecycle Management**
 
-**Location:** stt.py - Service dependency (lines ~70-78) and endpoint cleanup
+**Location:** stt.py - Service dependency and endpoint cleanup
 
 **Current Problem:**
 
@@ -100,7 +100,7 @@ def get_speech_service() -> TranscriptionService:
 
 **Locations:**
 
-- stt.py - After request completion (line ~250)
+- stt.py - After request completion
 - main.py - Periodic background task
 
 **Current State:**
@@ -234,14 +234,3 @@ async def _transcribe_async(self, ...):
 | **Fix 3B: Periodic GC** | ⭐ Low | None | Medium |
 | **Fix 4A: Token Cache** | ⭐ Low | +0.1s occasionally | Medium |
 | **Fix 4B: No Credential Cache** | ⭐⭐ Medium | -2s per request | Low |
-
-## Recommended Approach
-
-I recommend implementing **Fix 1 (critical)** + **Fix 3A (per-request GC)** as the minimum viable solution. These two changes should significantly reduce memory retention without major performance impact.
-
-**Would you like me to proceed with:**
-
-1. Only Fix 1 + Fix 3A (recommended minimum)
-2. All fixes with Option A variants (balanced)
-3. Custom combination based on your preference
-4. See additional analysis first?
