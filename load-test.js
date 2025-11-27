@@ -73,7 +73,7 @@ const THINK_TIME_MIN = parseFloat(__ENV.THINK_TIME_MIN || '1');
 const THINK_TIME_MAX = parseFloat(__ENV.THINK_TIME_MAX || '3');
 const VERBOSE_ERRORS = __ENV.VERBOSE_ERRORS !== 'false';
 const LOG_SAMPLE_RATE = parseInt(__ENV.LOG_SAMPLE_RATE || '10');
-const ENDPOINT = '/transcriptions/process-isolated';
+const ENDPOINT = __ENV.ENDPOINT || '/transcriptions/process-isolated';
 
 // Load pattern configuration
 const getLoadConfig = () => {

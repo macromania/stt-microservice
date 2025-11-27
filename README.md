@@ -142,16 +142,95 @@ The dashboard shows:
 
 **Development Loop**: After making code changes, redeploy with `make deploy-local`, run `make load-test`, and check Grafana to validate improvements in performance or memory behavior.
 
+### Demonstrating Memory Leak vs Process Isolation
+
+To understand why the process-isolated endpoint is the default, you can test the memory leak behavior with the standard thread-based endpoint.
+
+#### Testing the Memory Leak (Thread-Based Endpoint)
+
+Edit your `.env.k6` to change the endpoint:
+
+```bash
+# Add/modify in .env.k6:
+ENDPOINT=/transcriptions
+TEST_MODE=smoke  # Use short test to see leak quickly
+```
+
+Run the load test and watch Grafana's memory panel:
+
+```bash
+make load-test
+```
+
+**What you'll observe:**
+
+- Memory steadily increases with each request (~260MB per request)
+- Memory never gets reclaimed (native C++ SDK leaks)
+- After 20-25 requests: Pod memory exceeds 6GB limit → OOMKilled
+
+#### Testing Process Isolation (Default)
+
+Reset the endpoint to process-isolated in your `.env.k6`:
+
+```bash
+# Modify in .env.k6:
+ENDPOINT=/transcriptions/process-isolated
+```
+
+Run the same test:
+
+```bash
+make load-test
+```
+
+**What you'll observe:**
+
+- Memory remains stable across all requests
+- Parent process memory stays constant (~100-200MB)
+- No OOMKills regardless of request count
+
+#### Why Process Isolation Fixes This
+
+**Thread-Based (`/transcriptions`):**
+
+- Runs in main process using ThreadPoolExecutor
+- Native memory (Azure SDK C++ allocations) leaks in process heap
+- Python's garbage collector can't see or free native memory
+- Memory accumulates: 100MB → 360MB → 620MB → 880MB → OOMKilled
+
+**Process-Isolated (`/transcriptions/process-isolated`):**
+
+- Each request runs in a separate child process
+- Child process exits after transcription completes
+- **OS forcibly reclaims ALL memory** (Python + native allocations)
+- Parent process memory stays constant indefinitely
+- **Worker recycling**: Pool workers automatically restart after 100 tasks, refreshing any accumulated memory
+- **Idle cleanup**: When no requests are active, workers remain idle (not consuming transcription memory)
+
+The trade-off: Process isolation shows ~4-5 seconds higher average request duration compared to thread-based processing (16s vs 11s average), but guarantees zero memory leaks for 24/7 operation. This overhead comes from inter-process communication and pool management, not from spawning new processes per request. The process pool (12 workers with recycling) maintains warm worker processes that are reused across requests, making the isolation cost relatively small compared to the memory safety benefits.
+
 ### Configuration
 
 Key settings in `.env.k6`:
 
 - `BASE_URL`: Target API endpoint (from `make local-api` output)
+- `ENDPOINT`: API endpoint path (default: `/transcriptions/process-isolated`)
 - `TEST_MODE`: Preset patterns (`smoke`, `load`, `stress`, `soak`)
 - `MAX_VUS`: Maximum virtual users for custom load patterns
 - Load durations: `RAMP_UP_DURATION`, `STEADY_DURATION`, `RAMP_DOWN_DURATION`
 
 More details about test modes, advanced configuration, and results can be found in the [Load Testing Guide](./docs/load-testing.md).
+
+### Test Results Summary
+
+Extensive load testing has validated the memory leak fix and performance characteristics:
+
+- **Memory Leak Confirmed**: Thread-based endpoint leaks ~260MB per request, hitting 6GB limit after 20-25 requests
+- **Process Isolation Works**: Memory remains stable indefinitely with process-isolated endpoint
+- **Horizontal Scaling Wins**: 3 pods with 1 CPU each (5.24 req/s) outperforms 1 pod with 2 CPUs (2.78 req/s) by 88%
+- **Performance Trade-off**: Process isolation adds ~4-5s average overhead but guarantees zero memory leaks
+
+See [detailed test results](./docs/test-results.md) for detailed analysis, performance comparisons, and Grafana dashboard screenshots showing memory behavior under load.
 
 ## Local Deployment to Minikube
 
