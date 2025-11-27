@@ -93,15 +93,28 @@ This script will:
 
 ## Configuration
 
-### Environment Variables
+### Centralized Configuration with .env.k6
 
-Configuration is managed via `.env.k6` file. Copy from example:
+All load test parameters are configured through the `.env.k6` file. This approach provides:
+
+- **Single Source of Truth**: All test settings in one place
+- **Version Control**: Track configuration changes alongside code
+- **Environment-Specific**: Easy to maintain separate configs for local, staging, production
+- **Override-Friendly**: Environment variables can still override individual settings
+- **Script Independence**: Test scripts remain generic and reusable
+
+**Setup:**
 
 ```bash
 cp .env.k6.example .env.k6
+# Edit .env.k6 with your configuration
 ```
 
-Key configuration options:
+**Important**: The `run-load-test.sh` wrapper script automatically loads `.env.k6` before executing tests. All k6 environment variables must be defined in this file.
+
+### Configuration Reference
+
+Key configuration options in `.env.k6`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -118,6 +131,8 @@ Key configuration options:
 | `AUDIO_FILES_LIST` | `samples/audio-files.json` | File list (auto-generated) |
 | `REQUEST_TIMEOUT_MS` | `180000` | Request timeout (3 min) |
 | `K6_WEB_DASHBOARD` | `false` | Enable web dashboard for real-time visualization |
+
+**Note**: Individual settings (like `MAX_VUS`, `RAMP_UP_DURATION`) override `TEST_MODE` presets when specified. This allows you to start with a preset and fine-tune specific parameters.
 
 ### Test Mode Presets
 
