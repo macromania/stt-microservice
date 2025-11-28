@@ -394,12 +394,14 @@ class ProcessIsolatedTranscriptionService:
             try:
                 proc = psutil.Process(worker.pid)
                 mem = proc.memory_full_info()
-                workers_info.append({
-                    "index": i,
-                    "pid": worker.pid,
-                    "uss_mb": mem.uss / (1024 * 1024),
-                    "rss_mb": mem.rss / (1024 * 1024),
-                })
+                workers_info.append(
+                    {
+                        "index": i,
+                        "pid": worker.pid,
+                        "uss_mb": mem.uss / (1024 * 1024),
+                        "rss_mb": mem.rss / (1024 * 1024),
+                    }
+                )
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
                 logger.debug(f"Could not get memory info for worker {i}: {e}")
                 continue
