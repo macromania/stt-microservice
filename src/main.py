@@ -31,12 +31,12 @@ async def periodic_pool_recycler():
     """
     Background task to recycle process pool during idle periods.
 
-    Runs every 30 minutes and recycles the pool during low-traffic hours (2-4 AM).
+    Runs every 2 minutes to check for idle periods and recycle the pool.
     """
     while True:
         try:
-            # Run every 5 minutes
-            await asyncio.sleep(600)
+            # Run every 2 minutes for more responsive memory cleanup
+            await asyncio.sleep(120)
 
             from src.api.stt import get_process_service
 

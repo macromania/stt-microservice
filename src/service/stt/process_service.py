@@ -276,17 +276,38 @@ class ProcessIsolatedTranscriptionService:
         """
         Check if process pool has any pending or running work.
 
+        Uses comprehensive checks across all internal pool queues
+        for accurate idle detection.
+
         Returns
         -------
         bool
             True if pool is idle (no work), False if work is pending/running
         """
         try:
-            # Check internal pool cache for pending results
+            # Check 1: No pending results in cache
             if hasattr(self.pool, "_cache") and len(self.pool._cache) > 0:
                 return False  # Work is pending
 
-            # Check if any worker processes are actually running
+            # Check 2: Task queue is empty (tasks waiting to be dispatched)
+            if hasattr(self.pool, "_taskqueue") and not self.pool._taskqueue.empty():
+                return False  # Tasks queued
+
+            # Check 3: Nothing in inqueue (tasks in transit to workers)
+            try:
+                if hasattr(self.pool, "_inqueue") and self.pool._inqueue._reader.poll():
+                    return False  # Tasks being sent to workers
+            except (OSError, AttributeError):
+                pass  # Queue may be closed or unavailable
+
+            # Check 4: Nothing in outqueue (results waiting to be collected)
+            try:
+                if hasattr(self.pool, "_outqueue") and self.pool._outqueue._reader.poll():
+                    return False  # Results pending collection
+            except (OSError, AttributeError):
+                pass  # Queue may be closed or unavailable
+
+            # Check 5: Worker CPU activity
             from src.core.process_metrics import ProcessPoolMonitor
 
             monitor = ProcessPoolMonitor()
@@ -345,6 +366,45 @@ class ProcessIsolatedTranscriptionService:
                 "pool_size": self.pool_size,
                 "error": str(e),
             }
+
+    def get_workers_memory_info(self) -> list[dict[str, Any]]:
+        """
+        Get detailed memory info for all worker processes.
+
+        Uses USS (Unique Set Size) for accurate memory measurement.
+        Useful for monitoring and debugging memory usage.
+
+        Returns
+        -------
+        list[dict]
+            List of worker memory info with keys:
+            - index: Worker index in pool
+            - pid: Process ID
+            - uss_mb: Unique Set Size in MB (actual memory used)
+            - rss_mb: Resident Set Size in MB
+        """
+        workers_info = []
+
+        if not hasattr(self.pool, "_pool"):
+            return workers_info
+
+        for i, worker in enumerate(self.pool._pool):
+            if not worker.is_alive():
+                continue
+            try:
+                proc = psutil.Process(worker.pid)
+                mem = proc.memory_full_info()
+                workers_info.append({
+                    "index": i,
+                    "pid": worker.pid,
+                    "uss_mb": mem.uss / (1024 * 1024),
+                    "rss_mb": mem.rss / (1024 * 1024),
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError) as e:
+                logger.debug(f"Could not get memory info for worker {i}: {e}")
+                continue
+
+        return workers_info
 
     def restart_pool(self, wait_timeout: int = 30) -> bool:
         """
