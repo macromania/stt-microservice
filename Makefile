@@ -86,3 +86,22 @@ import-grafana-dashboard: ## Import STT dashboard into Grafana
 
 cleanup-local-cluster: ## Cleanup Minikube cluster
 	@minikube delete -p stt-microservice
+
+# Batch Transcription Testing
+batch-transcribe-demo: ## Run full demo: create, wait, show results, cleanup (optional: AUDIO_URL=...)
+	@./scripts/batch-transcribe.sh demo $(AUDIO_URL)
+
+batch-transcribe-create: ## Create a batch transcription job (optional: AUDIO_URL=...)
+	@./scripts/batch-transcribe.sh create $(AUDIO_URL)
+
+batch-transcribe-status: ## Get batch transcription status (requires: TRANSCRIPTION_ID=...)
+	@./scripts/batch-transcribe.sh status $(TRANSCRIPTION_ID)
+
+batch-transcribe-results: ## Get batch transcription results (requires: TRANSCRIPTION_ID=...)
+	@./scripts/batch-transcribe.sh results $(TRANSCRIPTION_ID)
+
+batch-transcribe-wait: ## Wait for completion and show results (requires: TRANSCRIPTION_ID=...)
+	@./scripts/batch-transcribe.sh wait $(TRANSCRIPTION_ID)
+
+batch-transcribe-delete: ## Delete a batch transcription (requires: TRANSCRIPTION_ID=...)
+	@./scripts/batch-transcribe.sh delete $(TRANSCRIPTION_ID)
