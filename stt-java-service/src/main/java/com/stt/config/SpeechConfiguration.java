@@ -1,17 +1,21 @@
 package com.stt.config;
 
-import com.azure.core.credential.AccessToken;
-import com.azure.core.credential.TokenCredential;
-import com.azure.core.credential.TokenRequestContext;
-import com.azure.identity.DefaultAzureCredentialBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.azure.core.credential.AccessToken;
+import com.azure.core.credential.TokenCredential;
+import com.azure.core.credential.TokenRequestContext;
+import com.azure.identity.DefaultAzureCredentialBuilder;
+
 /**
  * Configuration for Azure Speech SDK using RBAC authentication.
- * Uses DefaultAzureCredential for token-based authentication.
+ * 
+ * Authentication priority:
+ * 1. AZURE_ACCESS_TOKEN environment variable (for K8s deployments with pre-fetched token)
+ * 2. DefaultAzureCredential (for local development with az login, managed identity, etc.)
  */
 @Component
 public class SpeechConfiguration {
@@ -22,21 +26,33 @@ public class SpeechConfiguration {
     @Value("${stt.azure.speech.region:swedencentral}")
     private String region;
 
+    @Value("${AZURE_ACCESS_TOKEN:#{null}}")
+    private String preConfiguredToken;
+
     private final TokenCredential credential;
 
     public SpeechConfiguration() {
-        // Initialize DefaultAzureCredential for RBAC authentication
+        // Initialize DefaultAzureCredential for RBAC authentication (fallback)
         this.credential = new DefaultAzureCredentialBuilder().build();
         log.info("Initialized DefaultAzureCredential for Speech SDK");
     }
 
     /**
      * Get a fresh access token for Azure Speech Service.
-     * Called per request to ensure valid token (no caching for baseline testing).
+     * 
+     * First checks for AZURE_ACCESS_TOKEN env var (K8s deployments),
+     * then falls back to DefaultAzureCredential.
      *
      * @return Access token string
      */
     public String getAccessToken() {
+        // Check for pre-configured token first (K8s environment)
+        if (preConfiguredToken != null && !preConfiguredToken.isBlank()) {
+            log.debug("Using AZURE_ACCESS_TOKEN from environment");
+            return preConfiguredToken;
+        }
+
+        // Fall back to DefaultAzureCredential
         TokenRequestContext context = new TokenRequestContext()
                 .addScopes(COGNITIVE_SERVICES_SCOPE);
         
@@ -45,7 +61,7 @@ public class SpeechConfiguration {
             throw new RuntimeException("Failed to obtain access token for Speech Service");
         }
         
-        log.debug("Obtained access token, expires at: {}", token.getExpiresAt());
+        log.debug("Obtained access token via DefaultAzureCredential, expires at: {}", token.getExpiresAt());
         return token.getToken();
     }
 
