@@ -1,0 +1,49 @@
+# STT Java Service Configuration
+
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: stt-java-service
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+# Azure Speech Configuration (from environment variables)
+stt:
+  azure:
+    speech:
+      region: ${STT_AZURE_SPEECH_REGION:swedencentral}
+
+# Actuator and Metrics
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.stt: DEBUG
+    com.microsoft.cognitiveservices.speech: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

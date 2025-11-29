@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-java-service
+  labels:
+    app: stt-java-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stt-java-service
+  template:
+    metadata:
+      labels:
+        app: stt-java-service
+    spec:
+      # Allow 3 minutes for graceful shutdown
+      terminationGracePeriodSeconds: 180
+      containers:
+      - name: stt-java-service
+        image: stt-java-service:latest
+        imagePullPolicy: Never  # Use local image built in Minikube
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: APP_VERSION
+          value: "0.1.0"
+        # JVM memory settings for container
+        - name: JAVA_OPTS
+          value: "-XX:+UseG1GC -XX:MaxRAMPercentage=75 -XX:+UseContainerSupport -XX:+HeapDumpOnOutOfMemoryError"
+        envFrom:
+        - configMapRef:
+            name: stt-config
+        - secretRef:
+            name: azure-credentials
+            optional: true
+        resources:
+          requests:
+            cpu: "1500m"     # 1.5 CPU cores
+            memory: "4608Mi" # 4.5 GB (proportional to 6Gi limit)
+          limits:
+            cpu: "2000m"     # 2 CPU cores
+            memory: "6Gi"    # 6 Gigabytes of RAM
+        # Lifecycle hooks for graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+        # Startup probe: Give the app time to initialize
+        startupProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30  # 30 * 10s = 5 minutes max startup time
+        # Liveness probe: Detect if the app is stuck
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 15
+          failureThreshold: 12
+        # Readiness probe: Determine if pod can receive traffic
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6

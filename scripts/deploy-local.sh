@@ -15,6 +15,7 @@ MINIKUBE_CPUS=4
 MINIKUBE_MEMORY=8192
 NAMESPACE="default"
 APP_NAME="stt-service"
+JAVA_APP_NAME="stt-java-service"
 
 print_banner "Local Cluster Deployment"
 
@@ -97,15 +98,31 @@ install_monitoring() {
 
 # Function: Build Docker image
 build_image() {
-  print_step 3 "Building Docker image"
+  print_step 3 "Building Docker images"
   
   print_info "Setting Docker environment to use Minikube's Docker daemon..."
   eval "$(minikube -p "${MINIKUBE_PROFILE}" docker-env)"
   
-  print_info "Building ${APP_NAME}:latest..."
+  print_info "Building ${APP_NAME}:latest (Python)..."
   docker build -t "${APP_NAME}:latest" -f "${PROJECT_ROOT}/src/Dockerfile" "${PROJECT_ROOT}"
   
-  print_success "Docker image built successfully"
+  print_success "Python Docker image built successfully"
+  
+  # Build Java service if directory exists
+  if [ -d "${PROJECT_ROOT}/stt-java-service" ]; then
+    print_info "Building ${JAVA_APP_NAME}:latest (Java)..."
+    
+    # Build Maven project first
+    print_info "Running Maven build..."
+    (cd "${PROJECT_ROOT}/stt-java-service" && ./mvnw clean package -DskipTests -q)
+    
+    print_info "Building Java Docker image..."
+    docker build -t "${JAVA_APP_NAME}:latest" -f "${PROJECT_ROOT}/stt-java-service/Dockerfile" "${PROJECT_ROOT}/stt-java-service"
+    
+    print_success "Java Docker image built successfully"
+  else
+    print_info "Java service directory not found, skipping Java build"
+  fi
 }
 
 # Function: Create ConfigMap
@@ -130,17 +147,32 @@ create_configmap() {
 
 # Function: Deploy application
 deploy_app() {
-  print_step 5 "Deploying STT service"
+  print_step 5 "Deploying STT services"
   
-  print_info "Applying Kubernetes manifests..."
+  print_info "Applying Python service Kubernetes manifests..."
   kubectl apply -f "${PROJECT_ROOT}/k8s/deployment.yaml" -n "${NAMESPACE}"
   kubectl apply -f "${PROJECT_ROOT}/k8s/service.yaml" -n "${NAMESPACE}"
   kubectl apply -f "${PROJECT_ROOT}/k8s/monitor.yaml" -n "${NAMESPACE}"
   
-  print_info "Waiting for deployment to be ready..."
+  print_info "Waiting for Python deployment to be ready..."
   kubectl rollout status deployment/"${APP_NAME}" -n "${NAMESPACE}" --timeout=5m
   
-  print_success "STT service deployed successfully"
+  print_success "Python STT service deployed successfully"
+  
+  # Deploy Java service if directory exists
+  if [ -d "${PROJECT_ROOT}/stt-java-service/k8s" ]; then
+    print_info "Applying Java service Kubernetes manifests..."
+    kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/deployment.yaml" -n "${NAMESPACE}"
+    kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/service.yaml" -n "${NAMESPACE}"
+    kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/monitor.yaml" -n "${NAMESPACE}"
+    
+    print_info "Waiting for Java deployment to be ready..."
+    kubectl rollout status deployment/"${JAVA_APP_NAME}" -n "${NAMESPACE}" --timeout=5m
+    
+    print_success "Java STT service deployed successfully"
+  else
+    print_info "Java service k8s directory not found, skipping Java deployment"
+  fi
 }
 
 # Function: Configure Grafana
@@ -200,6 +232,15 @@ display_info() {
   echo -e "  ${CYAN}STT API - For Quick Manual Testing (single pod only):${NC}"
   echo "    kubectl port-forward -n ${NAMESPACE} svc/stt-service 8000:8000"
   echo "    Open: http://localhost:8000/docs"
+  echo ""
+  echo -e "  ${CYAN}Java STT API - For Load Testing:${NC}"
+  echo "    # Get the load-balanced service URL:"
+  echo "    JAVA_SERVICE_URL=\$(./scripts/get-service-url.sh stt-java-service)"
+  echo "    echo \$JAVA_SERVICE_URL"
+  echo ""
+  echo -e "  ${CYAN}Java STT API - For Quick Manual Testing (single pod only):${NC}"
+  echo "    kubectl port-forward -n ${NAMESPACE} svc/stt-java-service 8080:8080"
+  echo "    Open: http://localhost:8080/actuator/health"
   echo ""
   echo -e "  ${CYAN}View Metrics:${NC}"
   echo "    kubectl port-forward -n ${NAMESPACE} svc/stt-service 8000:8000"

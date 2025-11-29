@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: stt-java-service-monitor
+  labels:
+    app: stt-java-service
+spec:
+  selector:
+    matchLabels:
+      app: stt-java-service
+  endpoints:
+  - port: http-traffic
+    path: "/actuator/prometheus"
+    interval: 15s
+    scrapeTimeout: 10s

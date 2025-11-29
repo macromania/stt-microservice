@@ -105,3 +105,52 @@ batch-transcribe-wait: ## Wait for completion and show results (requires: TRANSC
 
 batch-transcribe-delete: ## Delete a batch transcription (requires: TRANSCRIPTION_ID=...)
 	@./scripts/batch-transcribe.sh delete $(TRANSCRIPTION_ID)
+
+# Java STT Service
+java-build: ## Build Java STT service
+	@echo "Building Java STT service..."
+	@cd stt-java-service && ./mvnw clean package -DskipTests -B
+
+java-docker: ## Build Java Docker image in Minikube
+	@echo "Building Java Docker image in Minikube..."
+	@eval $$(minikube docker-env -p stt-microservice) && \
+	docker build -t stt-java-service:latest stt-java-service/
+
+java-deploy: ## Deploy Java STT service to local cluster
+	@echo "Deploying Java STT service..."
+	@kubectl apply -f stt-java-service/k8s/
+
+java-logs: ## Stream logs from Java STT service
+	@kubectl logs -l app=stt-java-service -f --all-containers
+
+java-delete: ## Delete Java STT service from cluster
+	@echo "Deleting Java STT service..."
+	@kubectl delete -f stt-java-service/k8s/ || true
+
+java-full-deploy: java-build java-docker java-deploy ## Full Java service deployment (build, docker, deploy)
+	@echo "Java STT service fully deployed!"
+
+local-java-api: ## Start minikube service tunnel for Java service (Ctrl+C to stop)
+	@echo "Starting minikube service tunnel for Java STT service..."
+	@minikube service stt-java-service -p stt-microservice -n default
+
+compare-memory: ## Show memory usage comparison between Python and Java services
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "Memory Usage Comparison"
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo ""
+	@echo "=== Python STT Service ==="
+	@kubectl top pod -l app=stt-service 2>/dev/null || echo "Python service not running"
+	@echo ""
+	@echo "=== Java STT Service ==="
+	@kubectl top pod -l app=stt-java-service 2>/dev/null || echo "Java service not running"
+	@echo ""
+	@echo "═══════════════════════════════════════════════════════════════"
+
+load-test-java: ## Run load test against Java service
+	@if [ ! -f ".env.k6" ]; then \
+		echo "Error: .env.k6 not found"; \
+		exit 1; \
+	fi
+	@echo "Running load test against Java STT service..."
+	@K6_TARGET_PORT=30880 ./scripts/run-load-test.sh load-test.js

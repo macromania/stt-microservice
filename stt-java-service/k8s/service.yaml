@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: stt-java-service
+  labels:
+    app: stt-java-service
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http-traffic
+    nodePort: 30880  # Fixed port for Java service (Python uses 30800)
+  selector:
+    app: stt-java-service

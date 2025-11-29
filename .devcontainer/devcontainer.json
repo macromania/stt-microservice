@@ -39,6 +39,11 @@
       "version": "latest",
       "enableNonRootDocker": true,
       "moby": true
+    },
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installMaven": true,
+      "installGradle": false
     }
   },
   "remoteEnv": {
@@ -246,7 +251,11 @@
         // General extensions
         "davidanson.vscode-markdownlint",
         "pkief.material-icon-theme",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        // Java extensions
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-spring-boot",
+        "vscjava.vscode-spring-initializr"
       ]
     }
   }
