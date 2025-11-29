@@ -44,8 +44,8 @@ public class TranscriptionController {
     /**
      * Transcribe an audio file.
      *
-     * @param file Audio file (WAV format)
-     * @param language Source language code (default: en-US)
+     * @param audioFile Audio file (WAV format)
+     * @param language Source language code (default: auto)
      * @return Transcription response
      */
     @Operation(
@@ -58,16 +58,16 @@ public class TranscriptionController {
                     @ApiResponse(responseCode = "500", description = "Transcription failed")
             }
     )
-    @PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/transcriptions", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TranscriptionResponse> transcribe(
-            @Parameter(description = "Audio file (WAV format)") @RequestParam("file") MultipartFile file,
+            @Parameter(description = "Audio file (WAV format)") @RequestParam("audio_file") MultipartFile audioFile,
             @Parameter(description = "Source language code or 'auto' for detection") @RequestParam(value = "language", defaultValue = "auto") String language) {
         
         log.info("Received transcription request: filename={}, size={}, language={}",
-                file.getOriginalFilename(), file.getSize(), language);
+                audioFile.getOriginalFilename(), audioFile.getSize(), language);
 
         try {
-            byte[] audioData = file.getBytes();
+            byte[] audioData = audioFile.getBytes();
             TranscriptionResponse response = transcriptionService.transcribe(audioData, language);
             return ResponseEntity.ok(response);
         } catch (IOException e) {
