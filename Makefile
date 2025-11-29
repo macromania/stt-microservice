@@ -130,7 +130,7 @@ java-delete: ## Delete Java STT service from cluster
 java-full-deploy: java-build java-docker java-deploy ## Full Java service deployment (build, docker, deploy)
 	@echo "Java STT service fully deployed!"
 
-local-java-api: ## Start minikube service tunnel for Java service (Ctrl+C to stop)
+local-api-java: ## Start minikube service tunnel for Java service (Ctrl+C to stop)
 	@echo "Starting minikube service tunnel for Java STT service..."
 	@minikube service stt-java-service -p stt-microservice -n default
 
