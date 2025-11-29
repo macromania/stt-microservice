@@ -2,6 +2,12 @@ package com.stt.controller;
 
 import com.stt.model.TranscriptionResponse;
 import com.stt.service.TranscriptionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -18,6 +24,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/v2")
+@Tag(name = "Transcription", description = "Speech-to-Text transcription API")
 public class TranscriptionController {
 
     private static final Logger log = LoggerFactory.getLogger(TranscriptionController.class);
@@ -35,10 +42,20 @@ public class TranscriptionController {
      * @param language Source language code (default: en-US)
      * @return Transcription response
      */
+    @Operation(
+            summary = "Transcribe audio file",
+            description = "Upload a WAV audio file to transcribe it to text using Azure Speech SDK",
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Transcription successful",
+                            content = @Content(schema = @Schema(implementation = TranscriptionResponse.class))),
+                    @ApiResponse(responseCode = "400", description = "Invalid file or request"),
+                    @ApiResponse(responseCode = "500", description = "Transcription failed")
+            }
+    )
     @PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TranscriptionResponse> transcribe(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "language", defaultValue = "en-US") String language) {
+            @Parameter(description = "Audio file (WAV format)") @RequestParam("file") MultipartFile file,
+            @Parameter(description = "Source language code") @RequestParam(value = "language", defaultValue = "en-US") String language) {
         
         log.info("Received transcription request: filename={}, size={}, language={}",
                 file.getOriginalFilename(), file.getSize(), language);
@@ -59,6 +76,7 @@ public class TranscriptionController {
     /**
      * Health check endpoint.
      */
+    @Operation(summary = "Health check", description = "Check if the service is healthy")
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
         return ResponseEntity.ok(Map.of(

@@ -62,23 +62,7 @@ local-prometheus: ## Port-forward Prometheus to localhost:9090 (Ctrl+C to stop)
 	@kubectl port-forward -n default svc/kube-prometheus-stack-prometheus 9090:9090
 
 local-api: ## Start minikube service tunnel for load-balanced access (Ctrl+C to stop)
-	@echo "═══════════════════════════════════════════════════════════════"
-	@echo "Starting minikube service tunnel for STT service..."
-	@echo "This provides load-balanced access across all pods."
-	@echo "═══════════════════════════════════════════════════════════════"
-	@echo ""
-	@echo "📋 Copy this URL for load testing:"
-	@echo ""
-	@minikube service stt-service -p stt-microservice -n default --url
-	@echo ""
-	@echo "💡 Usage:"
-	@echo "   1. Copy the URL above (e.g., http://127.0.0.1:xxxxx)"
-	@echo "   2. In another terminal, run:"
-	@echo "      make load-test"
-	@echo ""
-	@echo "⚠️  Keep this terminal open - tunnel is active"
-	@echo "   Press Ctrl+C to stop the tunnel"
-	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "Starting minikube service tunnel for Python STT service..."
 	@minikube service stt-service -p stt-microservice -n default
 
 import-grafana-dashboard: ## Import STT dashboard into Grafana

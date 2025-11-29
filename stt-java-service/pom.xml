@@ -20,7 +20,7 @@
     </parent>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
         <azure.speech.version>1.43.0</azure.speech.version>
         <azure.identity.version>1.11.1</azure.identity.version>
     </properties>
@@ -68,6 +68,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- SpringDoc OpenAPI for Swagger UI -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.3.0</version>
         </dependency>
 
         <!-- Test dependencies -->
