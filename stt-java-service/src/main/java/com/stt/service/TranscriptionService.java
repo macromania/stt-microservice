@@ -36,15 +36,14 @@ import io.micrometer.core.instrument.Timer;
 @Service
 public class TranscriptionService {
 
-    // Language mapping (matches Python service)
+    // Language mapping (matches Python service) - note: "auto" is handled separately as Map.entry doesn't allow null
     private static final java.util.Map<String, String> LANGUAGE_MAP = java.util.Map.ofEntries(
             java.util.Map.entry("en", "en-US"),
             java.util.Map.entry("en-us", "en-US"),
             java.util.Map.entry("en-gb", "en-GB"),
             java.util.Map.entry("ar", "ar-SA"),
             java.util.Map.entry("ar-ae", "ar-AE"),
-            java.util.Map.entry("ar-sa", "ar-SA"),
-            java.util.Map.entry("auto", null)
+            java.util.Map.entry("ar-sa", "ar-SA")
     );
 
     private static final Logger log = LoggerFactory.getLogger(TranscriptionService.class);
@@ -122,15 +121,15 @@ public class TranscriptionService {
 
             // Map language code
             String azureLanguage = LANGUAGE_MAP.getOrDefault(language.toLowerCase(), language);
-
+            
             // Create ConversationTranscriber with or without auto-detection
-            AutoDetectSourceLanguageConfig autoDetectConfig = null;
             if (azureLanguage == null || "auto".equalsIgnoreCase(language)) {
                 // Auto-detection mode with continuous language identification
+                // Note: Don't include multiple locales for same language (e.g., only en-US, not en-US + en-GB)
                 log.info("Using auto-detection for transcription language");
                 speechConfig.setProperty(PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
-                autoDetectConfig = AutoDetectSourceLanguageConfig.fromLanguages(
-                        java.util.Arrays.asList("ar-AE", "ar-SA", "en-US", "en-GB"));
+                AutoDetectSourceLanguageConfig autoDetectConfig = AutoDetectSourceLanguageConfig.fromLanguages(
+                        java.util.Arrays.asList("en-US", "ar-AE"));
                 transcriber = new ConversationTranscriber(speechConfig, autoDetectConfig, audioConfig);
             } else {
                 // Specified language mode
