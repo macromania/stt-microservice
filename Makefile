@@ -118,6 +118,10 @@ local-api-java: ## Start minikube service tunnel for Java service (Ctrl+C to sto
 	@echo "Starting minikube service tunnel for Java STT service..."
 	@minikube service stt-java-service -p stt-microservice -n default
 
+local-api-java-pf: ## Port-forward Java service to localhost:8080 (Ctrl+C to stop)
+	@echo "Port-forwarding Java STT service to http://localhost:8080"
+	@kubectl port-forward -n default svc/stt-java-service 8080:8080
+
 compare-memory: ## Show memory usage comparison between Python and Java services
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo "Memory Usage Comparison"
