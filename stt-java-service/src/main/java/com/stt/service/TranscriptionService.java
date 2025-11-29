@@ -1,25 +1,32 @@
 package com.stt.service;
 
-import com.microsoft.cognitiveservices.speech.*;
-import com.microsoft.cognitiveservices.speech.audio.AudioConfig;
-import com.microsoft.cognitiveservices.speech.transcription.ConversationTranscriber;
-import com.microsoft.cognitiveservices.speech.transcription.ConversationTranscriptionEventArgs;
-import com.stt.config.SpeechConfiguration;
-import com.stt.model.TranscriptionResponse;
-import com.stt.model.TranscriptionSegment;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Semaphore;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.*;
-import java.util.concurrent.Semaphore;
+import com.microsoft.cognitiveservices.speech.CancellationReason;
+import com.microsoft.cognitiveservices.speech.PropertyId;
+import com.microsoft.cognitiveservices.speech.ResultReason;
+import com.microsoft.cognitiveservices.speech.SpeechConfig;
+import com.microsoft.cognitiveservices.speech.audio.AudioConfig;
+import com.microsoft.cognitiveservices.speech.transcription.ConversationTranscriber;
+import com.stt.config.SpeechConfiguration;
+import com.stt.model.TranscriptionResponse;
+import com.stt.model.TranscriptionSegment;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 
 /**
  * Transcription service using Azure Speech SDK.
@@ -82,10 +89,19 @@ public class TranscriptionService {
 
             // Get fresh access token (no caching for baseline testing)
             String accessToken = speechConfiguration.getAccessToken();
-            String region = speechConfiguration.getRegion();
 
-            // Create SpeechConfig with authorization token
-            speechConfig = SpeechConfig.fromAuthorizationToken(accessToken, region);
+            // Create SpeechConfig - use endpoint for AI Foundry, region otherwise
+            // This matches Python's approach for custom subdomain authentication
+            if (speechConfiguration.hasResourceName()) {
+                String endpoint = speechConfiguration.getEndpoint();
+                log.info("Using endpoint-based auth: {}", endpoint);
+                speechConfig = SpeechConfig.fromEndpoint(java.net.URI.create(endpoint));
+                speechConfig.setAuthorizationToken(accessToken);
+            } else {
+                String region = speechConfiguration.getRegion();
+                log.info("Using region-based auth: {}", region);
+                speechConfig = SpeechConfig.fromAuthorizationToken(accessToken, region);
+            }
             speechConfig.setSpeechRecognitionLanguage(language);
             speechConfig.setProperty(PropertyId.SpeechServiceResponse_DiarizeIntermediateResults, "true");
 

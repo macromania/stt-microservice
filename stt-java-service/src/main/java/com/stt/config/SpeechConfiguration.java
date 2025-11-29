@@ -26,6 +26,9 @@ public class SpeechConfiguration {
     @Value("${stt.azure.speech.region:swedencentral}")
     private String region;
 
+    @Value("${STT_AZURE_SPEECH_RESOURCE_NAME:#{null}}")
+    private String resourceName;
+
     @Value("${AZURE_ACCESS_TOKEN:#{null}}")
     private String preConfiguredToken;
 
@@ -72,5 +75,35 @@ public class SpeechConfiguration {
      */
     public String getRegion() {
         return region;
+    }
+
+    /**
+     * Get the Azure Speech resource name (custom subdomain for AI Foundry).
+     *
+     * @return Resource name or null if not configured
+     */
+    public String getResourceName() {
+        return resourceName;
+    }
+
+    /**
+     * Check if using AI Foundry (custom subdomain) endpoint.
+     *
+     * @return true if resource name is configured
+     */
+    public boolean hasResourceName() {
+        return resourceName != null && !resourceName.isBlank();
+    }
+
+    /**
+     * Get the endpoint URL for AI Foundry resources.
+     *
+     * @return Endpoint URL or null if not using AI Foundry
+     */
+    public String getEndpoint() {
+        if (hasResourceName()) {
+            return "https://" + resourceName + ".cognitiveservices.azure.com/";
+        }
+        return null;
     }
 }
