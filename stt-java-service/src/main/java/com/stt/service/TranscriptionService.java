@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.microsoft.cognitiveservices.speech.AutoDetectSourceLanguageConfig;
 import com.microsoft.cognitiveservices.speech.CancellationReason;
 import com.microsoft.cognitiveservices.speech.PropertyId;
 import com.microsoft.cognitiveservices.speech.ResultReason;
@@ -34,6 +35,17 @@ import io.micrometer.core.instrument.Timer;
  */
 @Service
 public class TranscriptionService {
+
+    // Language mapping (matches Python service)
+    private static final java.util.Map<String, String> LANGUAGE_MAP = java.util.Map.ofEntries(
+            java.util.Map.entry("en", "en-US"),
+            java.util.Map.entry("en-us", "en-US"),
+            java.util.Map.entry("en-gb", "en-GB"),
+            java.util.Map.entry("ar", "ar-SA"),
+            java.util.Map.entry("ar-ae", "ar-AE"),
+            java.util.Map.entry("ar-sa", "ar-SA"),
+            java.util.Map.entry("auto", null)
+    );
 
     private static final Logger log = LoggerFactory.getLogger(TranscriptionService.class);
 
@@ -102,14 +114,30 @@ public class TranscriptionService {
                 log.info("Using region-based auth: {}", region);
                 speechConfig = SpeechConfig.fromAuthorizationToken(accessToken, region);
             }
-            speechConfig.setSpeechRecognitionLanguage(language);
+            // Enable diarization
             speechConfig.setProperty(PropertyId.SpeechServiceResponse_DiarizeIntermediateResults, "true");
 
             // Create AudioConfig from temp file
             audioConfig = AudioConfig.fromWavFileInput(tempFile.getAbsolutePath());
 
-            // Create ConversationTranscriber for diarization
-            transcriber = new ConversationTranscriber(speechConfig, audioConfig);
+            // Map language code
+            String azureLanguage = LANGUAGE_MAP.getOrDefault(language.toLowerCase(), language);
+
+            // Create ConversationTranscriber with or without auto-detection
+            AutoDetectSourceLanguageConfig autoDetectConfig = null;
+            if (azureLanguage == null || "auto".equalsIgnoreCase(language)) {
+                // Auto-detection mode with continuous language identification
+                log.info("Using auto-detection for transcription language");
+                speechConfig.setProperty(PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous");
+                autoDetectConfig = AutoDetectSourceLanguageConfig.fromLanguages(
+                        java.util.Arrays.asList("ar-AE", "ar-SA", "en-US", "en-GB"));
+                transcriber = new ConversationTranscriber(speechConfig, autoDetectConfig, audioConfig);
+            } else {
+                // Specified language mode
+                log.info("Using specified language for transcription: {}", azureLanguage);
+                speechConfig.setSpeechRecognitionLanguage(azureLanguage);
+                transcriber = new ConversationTranscriber(speechConfig, audioConfig);
+            }
 
             // Collect transcription results
             List<TranscriptionSegment> segments = Collections.synchronizedList(new ArrayList<>());

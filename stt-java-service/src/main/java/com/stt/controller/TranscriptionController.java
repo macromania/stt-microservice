@@ -61,7 +61,7 @@ public class TranscriptionController {
     @PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TranscriptionResponse> transcribe(
             @Parameter(description = "Audio file (WAV format)") @RequestParam("file") MultipartFile file,
-            @Parameter(description = "Source language code") @RequestParam(value = "language", defaultValue = "en-US") String language) {
+            @Parameter(description = "Source language code or 'auto' for detection") @RequestParam(value = "language", defaultValue = "auto") String language) {
         
         log.info("Received transcription request: filename={}, size={}, language={}",
                 file.getOriginalFilename(), file.getSize(), language);
