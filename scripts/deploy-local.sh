@@ -154,6 +154,9 @@ deploy_app() {
   kubectl apply -f "${PROJECT_ROOT}/k8s/service.yaml" -n "${NAMESPACE}"
   kubectl apply -f "${PROJECT_ROOT}/k8s/monitor.yaml" -n "${NAMESPACE}"
   
+  print_info "Restarting Python deployment to pick up new image..."
+  kubectl rollout restart deployment/"${APP_NAME}" -n "${NAMESPACE}"
+  
   print_info "Waiting for Python deployment to be ready..."
   kubectl rollout status deployment/"${APP_NAME}" -n "${NAMESPACE}" --timeout=5m
   
@@ -165,6 +168,9 @@ deploy_app() {
     kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/deployment.yaml" -n "${NAMESPACE}"
     kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/service.yaml" -n "${NAMESPACE}"
     kubectl apply -f "${PROJECT_ROOT}/stt-java-service/k8s/monitor.yaml" -n "${NAMESPACE}"
+    
+    print_info "Restarting Java deployment to pick up new image..."
+    kubectl rollout restart deployment/"${JAVA_APP_NAME}" -n "${NAMESPACE}"
     
     print_info "Waiting for Java deployment to be ready..."
     kubectl rollout status deployment/"${JAVA_APP_NAME}" -n "${NAMESPACE}" --timeout=5m
