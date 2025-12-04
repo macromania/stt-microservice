@@ -638,6 +638,335 @@ async def create_fast_transcription(
                 logger.warning(f"[{short_trace_id}] Failed to cleanup temp file: {e}", extra={"trace_id": trace_id})
 
 
+@router.post("/hybrid", response_model=TranscriptionResponse)
+async def create_hybrid_transcription(
+    audio_file: Annotated[UploadFile, File(description="Audio file (max 100MB)")],
+    language: Annotated[str, Form(description="Language code or 'auto'")] = "auto",
+) -> TranscriptionResponse:
+    """
+    Create transcription using hybrid approach (async I/O + sync SDK processing).
+
+    This endpoint combines the best of both approaches:
+    - Async file upload (non-blocking network I/O)
+    - Sync Azure SDK processing (runs in thread pool for better memory isolation)
+
+    Architecture:
+    - File upload handled asynchronously
+    - SDK transcription runs in dedicated thread via asyncio.to_thread()
+    - Thread-isolated cleanup ensures predictable resource release
+
+    Benefits over pure async:
+    - Simpler SDK integration (no async/await mixed with blocking calls)
+    - Better memory behavior (thread stack cleanup)
+    - Clearer object lifetimes
+
+    Supports: WAV, MP3, M4A, FLAC, AAC, OGG, WEBM, MP4 (max 100MB)
+
+    Parameters
+    ----------
+    audio_file : UploadFile
+        Audio file to process
+    language : str
+        Language code (e.g., "ar-AE", "en-US") or "auto" for detection
+
+    Returns
+    -------
+    TranscriptionResponse
+        Transcription with segments, diarization, and metadata
+
+    Raises
+    ------
+    HTTPException
+        400: Invalid file
+        413: File too large
+        422: Invalid audio content
+        500: Processing failed
+    """
+    temp_file_path = None
+
+    try:
+        # Phase 1: Async file upload (non-blocking I/O)
+        validate_upload_file(audio_file)
+
+        # Stream file to disk with size limit
+        file_ext = Path(audio_file.filename).suffix.lower()
+        bytes_written = 0
+        chunk_size = 8192  # 8KB chunks
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, mode="wb")
+        try:
+            while True:
+                chunk = await audio_file.read(chunk_size)
+                if not chunk:
+                    break
+
+                bytes_written += len(chunk)
+                if bytes_written > MAX_FILE_SIZE:
+                    await asyncio.to_thread(temp_file.close)
+                    Path(temp_file.name).unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"File too large. Maximum: {MAX_FILE_SIZE / 1024 / 1024:.0f}MB",
+                    )
+
+                await asyncio.to_thread(temp_file.write, chunk)
+                del chunk
+
+            await asyncio.to_thread(temp_file.flush)
+            temp_file_path = temp_file.name
+        finally:
+            await asyncio.to_thread(temp_file.close)
+            await audio_file.close()
+
+        # Get trace ID
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+
+        sanitized_filename = Path(temp_file_path).name
+        logger.info(
+            f"[{short_trace_id}] Hybrid processing: {sanitized_filename} ({bytes_written / 1024 / 1024:.2f}MB)",
+            extra={"trace_id": trace_id},
+        )
+
+        # Phase 2: Sync SDK processing in thread pool
+        # This runs the blocking Azure SDK calls in a dedicated thread,
+        # providing better memory isolation and cleanup
+        from src.service.stt.hybrid_service import HybridTranscriptionService
+
+        service = HybridTranscriptionService()
+
+        # Run sync processing in thread pool via asyncio.to_thread()
+        result = await asyncio.to_thread(
+            service.process_audio_sync,
+            temp_file_path,
+            language,
+            trace_id,
+        )
+
+        # Record metrics
+        stt_transcriptions_total.labels(status="success", language=result.original_language).inc()
+        stt_audio_duration_seconds.observe(result.audio_duration_seconds)
+        stt_transcription_confidence.labels(language=result.original_language).set(result.confidence_average)
+        stt_transcription_time.observe(result.transcription_time_seconds)
+        stt_translation_time.observe(result.translation_time_seconds)
+
+        logger.info(
+            f"[{short_trace_id}] Hybrid complete: {len(result.segments)} segments, {result.original_language}",
+            extra={"trace_id": trace_id},
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+        logger.error(
+            f"[{short_trace_id}] Hybrid processing failed: {e}",
+            exc_info=True,
+            extra={"trace_id": trace_id},
+        )
+        stt_transcriptions_total.labels(status="error_processing", language="unknown").inc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Processing failed: {str(e)}",
+        ) from e
+    finally:
+        # Note: temp file is cleaned up by the sync processing function
+        # Force garbage collection
+        gc.collect()
+
+
+@router.post("/sync", response_model=TranscriptionResponse)
+def create_sync_transcription(
+    audio_file: Annotated[UploadFile, File(description="Audio file (max 100MB)")],
+    language: Annotated[str, Form(description="Language code or 'auto'")] = "auto",
+) -> TranscriptionResponse:
+    """
+    Create transcription using pure synchronous approach (no async/await).
+
+    This endpoint is a regular function (not async) that runs in Uvicorn's
+    thread pool. All operations are synchronous/blocking:
+    - File upload: Direct read() calls
+    - SDK processing: Direct blocking calls
+    - Cleanup: Synchronous operations
+
+    Architecture:
+    - Uvicorn automatically runs this in a thread pool (default: 40 threads per worker)
+    - No async/await complexity - simple top-to-bottom execution
+    - Ideal for debugging and understanding memory behavior
+
+    Benefits:
+    - Simplest possible code (no async overhead)
+    - Direct SDK integration (no thread pool wrapper)
+    - Clearest execution flow
+    - Best for SDK-heavy workloads
+
+    Supports: WAV, MP3, M4A, FLAC, AAC, OGG, WEBM, MP4 (max 100MB)
+
+    Parameters
+    ----------
+    audio_file : UploadFile
+        Audio file to process
+    language : str
+        Language code (e.g., "ar-AE", "en-US") or "auto" for detection
+
+    Returns
+    -------
+    TranscriptionResponse
+        Transcription with segments, diarization, and metadata
+
+    Raises
+    ------
+    HTTPException
+        400: Invalid file
+        413: File too large
+        422: Invalid audio content
+        500: Processing failed
+
+    Notes
+    -----
+    This endpoint runs in Uvicorn's thread pool, allowing parallel execution
+    of multiple requests. Threads are managed automatically by Uvicorn.
+    """
+    temp_file_path = None
+
+    try:
+        # Validate upload metadata
+        validate_upload_file(audio_file)
+
+        # Sync file upload (no await needed)
+        file_ext = Path(audio_file.filename).suffix.lower()
+        bytes_written = 0
+        chunk_size = 8192  # 8KB chunks
+
+        # Direct synchronous file operations
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, mode="wb")
+        try:
+            while True:
+                # Direct synchronous read from UploadFile.file (SpooledTemporaryFile)
+                chunk = audio_file.file.read(chunk_size)
+                if not chunk:
+                    break
+
+                bytes_written += len(chunk)
+                if bytes_written > MAX_FILE_SIZE:
+                    temp_file.close()
+                    Path(temp_file.name).unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"File too large. Maximum: {MAX_FILE_SIZE / 1024 / 1024:.0f}MB",
+                    )
+
+                # Direct synchronous write
+                temp_file.write(chunk)
+                del chunk
+
+                # Periodic GC
+                if bytes_written % (128 * 1024) < chunk_size:
+                    gc.collect(0)
+
+            temp_file.flush()
+            temp_file_path = temp_file.name
+        finally:
+            temp_file.close()
+            audio_file.file.close()
+
+        # Get trace ID
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+
+        sanitized_filename = Path(temp_file_path).name
+        logger.info(
+            f"[{short_trace_id}] Sync processing: {sanitized_filename} ({bytes_written / 1024 / 1024:.2f}MB)",
+            extra={"trace_id": trace_id},
+        )
+
+        # Direct synchronous SDK processing (no asyncio.to_thread wrapper)
+        # We're already in a thread from Uvicorn's thread pool
+        from src.service.stt.hybrid_service import HybridTranscriptionService
+
+        service = HybridTranscriptionService()
+
+        # Direct call - no async wrapper needed
+        result = service.process_audio_sync(
+            temp_file_path,
+            language,
+            trace_id,
+        )
+
+        # Record metrics
+        stt_transcriptions_total.labels(status="success", language=result.original_language).inc()
+        stt_audio_duration_seconds.observe(result.audio_duration_seconds)
+        stt_transcription_confidence.labels(language=result.original_language).set(result.confidence_average)
+        stt_transcription_time.observe(result.transcription_time_seconds)
+        stt_translation_time.observe(result.translation_time_seconds)
+
+        logger.info(
+            f"[{short_trace_id}] Sync complete: {len(result.segments)} segments, {result.original_language}",
+            extra={"trace_id": trace_id},
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except AudioFileSizeError as e:
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+        logger.error(
+            f"[{short_trace_id}] Audio size error: {e}",
+            extra={"trace_id": trace_id},
+        )
+        stt_transcriptions_total.labels(status="error_size", language="unknown").inc()
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        ) from e
+    except AudioFormatError as e:
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+        logger.error(
+            f"[{short_trace_id}] Audio format error: {e}",
+            extra={"trace_id": trace_id},
+        )
+        stt_transcriptions_total.labels(status="error_format", language="unknown").inc()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+        logger.error(
+            f"[{short_trace_id}] Validation error: {e}",
+            extra={"trace_id": trace_id},
+        )
+        stt_transcriptions_total.labels(status="error_validation", language="unknown").inc()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        trace_id = get_trace_id()
+        short_trace_id = trace_id[:8]
+        logger.error(
+            f"[{short_trace_id}] Sync processing failed: {e}",
+            exc_info=True,
+            extra={"trace_id": trace_id},
+        )
+        stt_transcriptions_total.labels(status="error_processing", language="unknown").inc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Processing failed: {str(e)}",
+        ) from e
+    finally:
+        # Note: temp file is cleaned up by the service's process_audio_sync method
+        # Force garbage collection
+        gc.collect()
+
+
 @router.get("/debug/memory")
 async def debug_memory_stats():
     """

@@ -1826,8 +1826,493 @@ running (10m00.6s), 00/50 VUs, 3861 complete and 0 interrupted iterations
 stt_load_test ✓ [======================================] 00/50 VUs  10m0s
 ```
 
-## 7th Run
+## Sync Implementation in Python with limit-max-requests flag
+
+### 1st Run - limit-max-requests: 100, no graceful timeout, single worker
+
+- The --limit-max-requests is causing those pod restarts
+- When --limit-max-requests triggers:
+
+✅ Process stops accepting connections
+✅ Waits for in-flight requests (with timeout)
+✅ Process exits with code 0 (success)
+⚠️ Kubernetes sees container exit → Restarts pod
+⚠️ During restart window: Reduced capacity, potential 503 errors
+⚠️ Connection reset errors when grace period expires
+
+![Max Requests 100](./images/max-requests-100.png)
+
+```
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=3.49s
+
+    http_req_failed
+    ✗ 'rate<0.05' rate=93.67%
+
+    transcription_success
+    ✗ 'rate>0.95' rate=6.32%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 42165  46.806258/s
+    checks_succeeded...: 6.32%  2665 out of 42165
+    checks_failed......: 93.67% 39500 out of 42165
+
+    ✗ status is 200
+      ↳  6% — ✓ 533 / ✗ 7900
+    ✗ has original_text
+      ↳  6% — ✓ 533 / ✗ 7900
+    ✗ has translated_text
+      ↳  6% — ✓ 533 / ✗ 7900
+    ✗ has segments array
+      ↳  6% — ✓ 533 / ✗ 7900
+    ✗ segments have required fields
+      ↳  6% — ✓ 533 / ✗ 7900
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=253.706088 med=195.857422 p(90)=516.326172 p(95)=566.482422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 8434   9.362362/s
+    segment_count..................: min=0         avg=1.075047   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=144.838346 med=121        p(90)=275.6      p(95)=317.75     p(99)=414        max=414       
+    transcription_success..........: 6.32%  533 out of 8433
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=0s        avg=1.89s      med=2.29ms     p(90)=31.79ms    p(95)=3.49s      p(99)=1m20s      max=2m15s     
+      { expected_response:true }...: min=1.96s     avg=29.67s     med=5.87s      p(90)=1m27s      p(95)=1m30s      p(99)=2m11s      max=2m15s     
+    http_req_failed................: 93.67% 7900 out of 8433
+    http_reqs......................: 8433   9.361252/s
+
+    EXECUTION
+    iteration_duration.............: min=1.06s     avg=4.44s      med=2.51s      p(90)=4.36s      p(95)=6.53s      p(99)=1m23s      max=2m22s     
+    iterations.....................: 8433   9.361252/s
+    vus............................: 1      min=0            max=50
+    vus_max........................: 50     min=50           max=50
+
+    NETWORK
+    data_received..................: 483 kB 536 B/s
+    data_sent......................: 1.7 GB 1.9 MB/s
+
+
+
+
+running (15m00.8s), 00/50 VUs, 8433 complete and 1 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+ERRO[0901] thresholds on metrics 'http_req_failed, transcription_success' have been crossed 
+```
+
+### 2nd Run - limit-max-requests: 500 and graceful shutdown 30s, single worker
+
+![Max Requests 500](./images/max-requests-500.png)
 
 ```
 
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=11.54s
+
+    http_req_failed
+    ✗ 'rate<0.05' rate=56.63%
+
+    transcription_success
+    ✗ 'rate>0.95' rate=43.36%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 24545  27.030008/s
+    checks_succeeded...: 43.36% 10645 out of 24545
+    checks_failed......: 56.63% 13900 out of 24545
+
+    ✗ status is 200
+      ↳  43% — ✓ 2129 / ✗ 2780
+    ✗ has original_text
+      ↳  43% — ✓ 2129 / ✗ 2780
+    ✗ has translated_text
+      ↳  43% — ✓ 2129 / ✗ 2780
+    ✗ has segments array
+      ↳  43% — ✓ 2129 / ✗ 2780
+    ✗ segments have required fields
+      ↳  43% — ✓ 2129 / ✗ 2780
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=257.489334 med=196.326172 p(90)=522.419922 p(95)=566.482422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 4927   5.425824/s
+    segment_count..................: min=1         avg=1.077501   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=137.950681 med=111        p(90)=272        p(95)=291        p(99)=414        max=414       
+    transcription_success..........: 43.36% 2129 out of 4909
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=0s        avg=4.98s      med=25.33ms    p(90)=8.46s      p(95)=11.54s     p(99)=1m15s      max=2m15s     
+      { expected_response:true }...: min=1.8s      avg=10.9s      med=4.79s      p(90)=13.03s     p(95)=1m9s       p(99)=1m26s      max=2m15s     
+    http_req_failed................: 56.63% 2780 out of 4909
+    http_reqs......................: 4909   5.406002/s
+
+    EXECUTION
+    iteration_duration.............: min=1.1s      avg=7.54s      med=4.01s      p(90)=10.93s     p(95)=14.19s     p(99)=1m19s      max=2m17s     
+    iterations.....................: 4909   5.406002/s
+    vus............................: 1      min=0            max=50
+    vus_max........................: 50     min=50           max=50
+
+    NETWORK
+    data_received..................: 1.9 MB 2.1 kB/s
+    data_sent......................: 1.0 GB 1.1 MB/s
+
+
+
+
+running (15m08.1s), 00/50 VUs, 4909 complete and 18 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+ERRO[0909] thresholds on metrics 'http_req_failed, transcription_success' have been crossed 
+
+```
+
+### 3rd Run - limit-max-requests: 500 and graceful shutdown 30s, 2 workers
+
+With 2 workers:
+
+- Normal operation: 2 × 2 GiB = 4 GiB ✅ Safe
+- During restart: 1 running + 1 shutting down + 1 starting = 6 GiB ✅ At limit but manageable
+- Buffer: 2 GiB headroom for spikes
+
+![Max Requests 500 - 2 Workers](./images/max-requests-500-2-workers.png)
+
+```
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=21.87s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=100.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 21215   23.533775/s
+    checks_succeeded...: 100.00% 21215 out of 21215
+    checks_failed......: 0.00%   0 out of 21215
+
+    ✓ status is 200
+    ✓ has original_text
+    ✓ has translated_text
+    ✓ has segments array
+    ✓ segments have required fields
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=252.850375 med=195.857422 p(90)=516.326172 p(95)=554.607422 p(99)=729.296875 max=729.296875
+    audio_files_used...............: 4245    4.708974/s
+    segment_count..................: min=0         avg=1.067405   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=137.778066 med=111        p(90)=272        p(95)=304        p(99)=414        max=414       
+    transcription_success..........: 100.00% 4243 out of 4243
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.72s     avg=6.59s      med=3.9s       p(90)=12.41s     p(95)=21.87s     p(99)=39.07s     max=2m25s     
+      { expected_response:true }...: min=1.72s     avg=6.59s      med=3.9s       p(90)=12.41s     p(95)=21.87s     p(99)=39.07s     max=2m25s     
+    http_req_failed................: 0.00%   0 out of 4243
+    http_reqs......................: 4243    4.706755/s
+
+    EXECUTION
+    iteration_duration.............: min=3.04s     avg=8.88s      med=6.22s      p(90)=14.83s     p(95)=24.17s     p(99)=40.98s     max=2m28s     
+    iterations.....................: 4243    4.706755/s
+    vus............................: 1       min=0            max=50
+    vus_max........................: 50      min=50           max=50
+
+    NETWORK
+    data_received..................: 3.8 MB  4.2 kB/s
+    data_sent......................: 1.1 GB  1.2 MB/s
+
+
+
+
+running (15m01.5s), 00/50 VUs, 4243 complete and 2 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+```
+
+### 4th Run - limit-max-requests: 500 and graceful shutdown 30s, 2 workers
+
+- Accumulation over time is controlled
+
+![Max 500 rerun](./images/max-requests-500-2-workers-second-run.png)
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=22.51s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.91%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.08%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 19585  21.612022/s
+    checks_succeeded...: 99.08% 19405 out of 19585
+    checks_failed......: 0.91%  180 out of 19585
+
+    ✗ status is 200
+      ↳  99% — ✓ 3881 / ✗ 36
+    ✗ has original_text
+      ↳  99% — ✓ 3881 / ✗ 36
+    ✗ has translated_text
+      ↳  99% — ✓ 3881 / ✗ 36
+    ✗ has segments array
+      ↳  99% — ✓ 3881 / ✗ 36
+    ✗ segments have required fields
+      ↳  99% — ✓ 3881 / ✗ 36
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=256.25815  med=196.326172 p(90)=522.419922 p(95)=566.482422 p(99)=703.201172 max=729.296875
+    audio_files_used...............: 3920   4.325715/s
+    segment_count..................: min=0         avg=0.475393   med=0          p(90)=1          p(95)=1          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=141.601411 med=117        p(90)=276        p(95)=304        p(99)=414        max=414       
+    transcription_success..........: 99.08% 3881 out of 3917
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=42.96ms   avg=7.37s      med=3.8s       p(90)=14s        p(95)=22.51s     p(99)=51.88s     max=2m28s     
+      { expected_response:true }...: min=496.32ms  avg=7.22s      med=3.73s      p(90)=13.04s     p(95)=21.25s     p(99)=51.92s     max=2m28s     
+    http_req_failed................: 0.91%  36 out of 3917
+    http_reqs......................: 3917   4.322404/s
+
+    EXECUTION
+    iteration_duration.............: min=1.39s     avg=9.62s      med=6.15s      p(90)=16.28s     p(95)=24.71s     p(99)=54.38s     max=2m32s     
+    iterations.....................: 3917   4.322404/s
+    vus............................: 1      min=0            max=50
+    vus_max........................: 50     min=50           max=50
+
+    NETWORK
+    data_received..................: 2.7 MB 2.9 kB/s
+    data_sent......................: 1.0 GB 1.1 MB/s
+
+
+
+
+running (15m06.2s), 00/50 VUs, 3917 complete and 3 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+```
+
+### 5th Run - limit-max-requests: 500 and graceful shutdown 30s, 3 workers
+
+- Fresh deployment
+
+![Max Requests 3 Workers](./images/max-requests-500-3-workers.png)
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=17.02s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.09%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.90%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 21855  24.12197/s
+    checks_succeeded...: 99.90% 21835 out of 21855
+    checks_failed......: 0.09%  20 out of 21855
+
+    ✗ status is 200
+      ↳  99% — ✓ 4367 / ✗ 4
+    ✗ has original_text
+      ↳  99% — ✓ 4367 / ✗ 4
+    ✗ has translated_text
+      ↳  99% — ✓ 4367 / ✗ 4
+    ✗ has segments array
+      ↳  99% — ✓ 4367 / ✗ 4
+    ✗ segments have required fields
+      ↳  99% — ✓ 4367 / ✗ 4
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=255.594467 med=196.326172 p(90)=516.326172 p(95)=554.607422 p(99)=703.201172 max=729.296875
+    audio_files_used...............: 4372   4.825498/s
+    segment_count..................: min=0         avg=1.065491   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=138.12374  med=116        p(90)=268        p(95)=291        p(99)=369        max=414       
+    transcription_success..........: 99.90% 4367 out of 4371
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.59s     avg=6.36s      med=3.7s       p(90)=11.35s     p(95)=17.02s     p(99)=42.46s     max=2m22s     
+      { expected_response:true }...: min=1.59s     avg=6.33s      med=3.7s       p(90)=11.21s     p(95)=16.9s      p(99)=41.44s     max=2m22s     
+    http_req_failed................: 0.09%  4 out of 4371
+    http_reqs......................: 4371   4.824394/s
+
+    EXECUTION
+    iteration_duration.............: min=3s        avg=8.61s      med=6.01s      p(90)=13.82s     p(95)=19.22s     p(99)=44.63s     max=2m25s     
+    iterations.....................: 4371   4.824394/s
+    vus............................: 1      min=0            max=50
+    vus_max........................: 50     min=50           max=50
+
+    NETWORK
+    data_received..................: 3.9 MB 4.3 kB/s
+    data_sent......................: 1.1 GB 1.3 MB/s
+
+
+
+
+running (15m06.0s), 00/50 VUs, 4371 complete and 1 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+```
+
+### 6th Run - limit-max-requests: 500 and graceful shutdown 30s, 3 workers
+
+- Existing deployment
+
+![Max Requests 3 Workers Rerun](./images/max-requests-500-3-workers-rerun.png)
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=16.36s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.80%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.19%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 23545  25.984601/s
+    checks_succeeded...: 99.19% 23355 out of 23545
+    checks_failed......: 0.80%  190 out of 23545
+
+    ✗ status is 200
+      ↳  99% — ✓ 4671 / ✗ 38
+    ✗ has original_text
+      ↳  99% — ✓ 4671 / ✗ 38
+    ✗ has translated_text
+      ↳  99% — ✓ 4671 / ✗ 38
+    ✗ has segments array
+      ↳  99% — ✓ 4671 / ✗ 38
+    ✗ segments have required fields
+      ↳  99% — ✓ 4671 / ✗ 38
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=257.287929 med=196.326172 p(90)=522.419922 p(95)=566.482422 p(99)=703.201172 max=729.296875
+    audio_files_used...............: 4712   5.200231/s
+    segment_count..................: min=0         avg=1.072575   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=139.681302 med=116        p(90)=272        p(95)=291        p(99)=369        max=414       
+    transcription_success..........: 99.19% 4671 out of 4709
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.59s     avg=5.72s      med=3.54s      p(90)=11.26s     p(95)=16.36s     p(99)=23.58s     max=2m23s     
+      { expected_response:true }...: min=1.59s     avg=5.62s      med=3.52s      p(90)=11.01s     p(95)=16.03s     p(99)=23.17s     max=2m23s     
+    http_req_failed................: 0.80%  38 out of 4709
+    http_reqs......................: 4709   5.19692/s
+
+    EXECUTION
+    iteration_duration.............: min=3s        avg=7.96s      med=5.8s       p(90)=13.83s     p(95)=18.55s     p(99)=25.8s      max=2m25s     
+    iterations.....................: 4709   5.19692/s
+    vus............................: 2      min=0            max=50
+    vus_max........................: 50     min=50           max=50
+
+    NETWORK
+    data_received..................: 4.2 MB 4.6 kB/s
+    data_sent......................: 1.2 GB 1.4 MB/s
+
+
+
+
+running (15m06.1s), 00/50 VUs, 4709 complete and 3 interrupted iterations
+stt_load_test ✓ [======================================] 00/50 VUs  15m0s
+```
+
+### 7th Run - limit-max-requests: 500 and graceful shutdown 30s, 3 workers, 100VUs
+
+- Existing deployment
+- 100VUs
+
+![100 VUs, 3 workers](./images/max-requests-500-3-workers-100vus.png)
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=1m41s
+
+    http_req_failed
+    ✗ 'rate<0.05' rate=24.92%
+
+    transcription_success
+    ✗ 'rate>0.95' rate=75.07%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 10975  12.164372/s
+    checks_succeeded...: 75.07% 8240 out of 10975
+    checks_failed......: 24.92% 2735 out of 10975
+
+    ✗ status is 200
+      ↳  75% — ✓ 1648 / ✗ 547
+    ✗ has original_text
+      ↳  75% — ✓ 1648 / ✗ 547
+    ✗ has translated_text
+      ↳  75% — ✓ 1648 / ✗ 547
+    ✗ has segments array
+      ↳  75% — ✓ 1648 / ✗ 547
+    ✗ segments have required fields
+      ↳  75% — ✓ 1648 / ✗ 547
+
+    CUSTOM
+    audio_file_size_kb.............: min=60.076172 avg=252.38292  med=196.326172 p(90)=516.326172 p(95)=554.607422 p(99)=703.201172 max=729.296875
+    audio_files_used...............: 2195   2.432874/s
+    segment_count..................: min=1         avg=1.063107   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=36        avg=135.242112 med=111        p(90)=267        p(95)=291        p(99)=369        max=414       
+    transcription_success..........: 75.07% 1648 out of 2195
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.78s     avg=30.42s     med=11.49s     p(90)=1m19s      p(95)=1m41s      p(99)=1m57s      max=2m35s     
+      { expected_response:true }...: min=1.78s     avg=23.61s     med=7.22s      p(90)=1m7s       p(95)=1m44s      p(99)=1m56s      max=2m35s     
+    http_req_failed................: 24.92% 547 out of 2195
+    http_reqs......................: 2195   2.432874/s
+
+    EXECUTION
+    iteration_duration.............: min=3.1s      avg=34.4s      med=15.23s     p(90)=1m27s      p(95)=1m46s      p(99)=2m4s       max=2m43s     
+    iterations.....................: 2195   2.432874/s
+    vus............................: 0      min=0            max=100
+    vus_max........................: 100    min=100          max=100
+
+    NETWORK
+    data_received..................: 1.5 MB 1.6 kB/s
+    data_sent......................: 569 MB 630 kB/s
+
+
+
+
+running (15m02.2s), 000/100 VUs, 2195 complete and 0 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  15m0s
+ERRO[0904] thresholds on metrics 'http_req_failed, transcription_success' have been crossed 
 ```

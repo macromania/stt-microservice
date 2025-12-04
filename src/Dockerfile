@@ -69,4 +69,8 @@ EXPOSE 8000
 
 # Use entrypoint wrapper to dynamically load jemalloc before starting the app
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use 2 workers with limit-max-requests for rolling restarts (fits in 6Gi K8s limit)
+# Each worker recycles after 500 requests (~83s at 6 req/s) to release SDK memory
+# 2 workers × 2GiB = 4GiB baseline, 6GiB peak during restart (within K8s limits)
+# Worker restart every ~42s, always 1+ worker serving traffic
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3", "--limit-max-requests", "500", "--timeout-graceful-shutdown", "30"]
