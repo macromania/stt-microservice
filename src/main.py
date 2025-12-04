@@ -94,9 +94,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to start memory collector: {e}")
         # Non-critical, continue startup
 
-    # Start pool recycler background task
-    recycler_task = asyncio.create_task(periodic_pool_recycler())
-    logger.info("Process pool recycler started")
+    # Start pool recycler background task (only if process-isolated is enabled)
+    recycler_task = None
+    if settings.enable_process_isolated:
+        recycler_task = asyncio.create_task(periodic_pool_recycler())
+        logger.info("Process pool recycler started")
+    else:
+        logger.info("Process pool recycler not started (process-isolated disabled)")
 
     logger.info("Application startup completed")
 
@@ -105,15 +109,16 @@ async def lifespan(app: FastAPI):
     # Shutdown code here
     logger.info("Shutting down application...")
 
-    # Cancel pool recycler task
-    try:
-        recycler_task.cancel()
-        await recycler_task
-        logger.info("Process pool recycler stopped")
-    except asyncio.CancelledError:
-        logger.info("Process pool recycler cancelled successfully")
-    except Exception as e:
-        logger.error(f"Error stopping pool recycler: {e}")
+    # Cancel pool recycler task (only if it was started)
+    if recycler_task is not None:
+        try:
+            recycler_task.cancel()
+            await recycler_task
+            logger.info("Process pool recycler stopped")
+        except asyncio.CancelledError:
+            logger.info("Process pool recycler cancelled successfully")
+        except Exception as e:
+            logger.error(f"Error stopping pool recycler: {e}")
 
     # Stop memory collector
     try:
