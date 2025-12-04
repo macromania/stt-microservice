@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     stt_max_duration_minutes: int = Field(default=120, description="Maximum audio duration for STT in minutes", alias="STT_MAX_DURATION_MINUTES")
 
     # Process isolation settings
+    enable_process_isolated: bool = Field(default=True, description="Enable process-isolated transcription endpoint and worker pool", alias="ENABLE_PROCESS_ISOLATED")
     process_pool_size: int = Field(default=12, description="Number of worker processes for process-isolated transcription", alias="PROCESS_POOL_SIZE")
     process_timeout: int = Field(default=300, description="Timeout in seconds per transcription process (5 minutes)", alias="PROCESS_TIMEOUT")
 

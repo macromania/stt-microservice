@@ -1,7 +1,6 @@
 """Speech-to-Text V2 API router with async implementation."""
 
 import asyncio
-from functools import lru_cache
 import gc
 import linecache
 import logging
@@ -69,22 +68,40 @@ process_worker_count = Gauge("process_worker_count", "Number of active worker pr
 process_per_worker_memory_bytes = Gauge("process_per_worker_memory_bytes", "Average memory per worker process")
 process_total_memory_bytes = Gauge("process_total_memory_bytes", "Total memory (parent + workers)")
 
+# Module-level cache for process service
+_process_service_instance = None
 
-@lru_cache(maxsize=1)
+
 def get_process_service():
-    """Get cached ProcessIsolatedTranscriptionService instance (singleton).
+    """Get ProcessIsolatedTranscriptionService instance if enabled.
 
-    Uses lru_cache to create and reuse a single service instance with persistent
-    process pool. The pool is only shut down on application shutdown, not per-request.
+    Creates a singleton instance on first call if the feature is enabled.
+    Raises HTTPException if the feature is disabled.
 
     Returns
     -------
     ProcessIsolatedTranscriptionService
-        Cached service instance with persistent worker pool
-    """
-    from src.service.stt.process_service import ProcessIsolatedTranscriptionService
+        Singleton service instance with persistent worker pool
 
-    return ProcessIsolatedTranscriptionService()
+    Raises
+    ------
+    HTTPException
+        503: If process-isolated endpoint is disabled via ENABLE_PROCESS_ISOLATED flag
+    """
+    settings = get_settings()
+
+    if not settings.enable_process_isolated:
+        raise HTTPException(status_code=503, detail="Process-isolated endpoint is disabled via ENABLE_PROCESS_ISOLATED flag")
+
+    # Use module-level cache
+    global _process_service_instance
+    if _process_service_instance is None:
+        from src.service.stt.process_service import ProcessIsolatedTranscriptionService
+
+        _process_service_instance = ProcessIsolatedTranscriptionService()
+        logger.info("Process-isolated service initialized")
+
+    return _process_service_instance
 
 
 def get_speech_service() -> TranscriptionService:
@@ -328,6 +345,7 @@ async def create_transcription_process_isolated(
         400: Invalid file
         413: File too large
         422: Invalid audio content
+        503: Feature disabled
         504: Process timeout
         500: Processing failed
 
@@ -335,8 +353,13 @@ async def create_transcription_process_isolated(
     -----
     Performance: ~2-3s slower than thread-based endpoint due to process overhead.
     Memory: Guarantees no memory leaks, suitable for 24/7 operation.
+    Can be disabled via ENABLE_PROCESS_ISOLATED=false environment variable.
     """
     from time import time
+
+    # Check if feature is enabled (raises 503 if disabled)
+    if not settings.enable_process_isolated:
+        raise HTTPException(status_code=503, detail="Process-isolated endpoint is disabled via ENABLE_PROCESS_ISOLATED flag")
 
     temp_file_path = None
     service = None

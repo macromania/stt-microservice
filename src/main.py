@@ -32,7 +32,15 @@ async def periodic_pool_recycler():
     Background task to recycle process pool during idle periods.
 
     Runs every 2 minutes to check for idle periods and recycle the pool.
+    Only runs if process-isolated feature is enabled.
     """
+    settings = get_settings()
+
+    # Skip if process-isolated is disabled
+    if not settings.enable_process_isolated:
+        logger.info("Pool recycler: process-isolated disabled, task not needed")
+        return
+
     while True:
         try:
             # Run every 2 minutes for more responsive memory cleanup
@@ -63,14 +71,18 @@ async def lifespan(app: FastAPI):
 
     # Eagerly initialize process pool to avoid delay on first request
     # This ensures the pool is ready before any traffic arrives
-    try:
-        from src.api.stt import get_process_service
+    # Only initialize if process-isolated feature is enabled
+    if settings.enable_process_isolated:
+        try:
+            from src.api.stt import get_process_service
 
-        service = get_process_service()
-        logger.info("Process pool initialized successfully during startup")
-    except Exception as e:
-        logger.error(f"Failed to initialize process pool: {e}")
-        # Don't fail startup - pool will be initialized on first request as fallback
+            get_process_service()  # Initialize the singleton
+            logger.info("Process pool initialized successfully during startup")
+        except Exception as e:
+            logger.error(f"Failed to initialize process pool: {e}")
+            # Don't fail startup - pool will be initialized on first request as fallback
+    else:
+        logger.info("Process-isolated endpoint disabled via ENABLE_PROCESS_ISOLATED flag")
 
     # Start background memory collector for process monitoring
     try:
@@ -112,20 +124,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping memory collector: {e}")
 
-    # Shutdown process pool if it exists
-    try:
-        from src.api.stt import get_process_service
+    # Shutdown process pool if it exists and feature is enabled
+    if settings.enable_process_isolated:
+        try:
+            from src.api.stt import _process_service_instance
 
-        # Check if the service was ever created (lru_cache will have it cached)
-        if get_process_service.cache_info().currsize > 0:
-            logger.info("Shutting down process-isolated transcription service...")
-            service = get_process_service()
-            # Use 60s timeout to allow in-flight requests to complete
-            # This works with terminationGracePeriodSeconds=180 in k8s
-            service.shutdown(timeout=60)
-            logger.info("Process pool shut down successfully")
-    except (ImportError, AttributeError) as e:
-        logger.debug(f"No process service to shutdown: {e}")
+            # Check if the service was ever created
+            if _process_service_instance is not None:
+                logger.info("Shutting down process-isolated transcription service...")
+                # Use 60s timeout to allow in-flight requests to complete
+                # This works with terminationGracePeriodSeconds=180 in k8s
+                _process_service_instance.shutdown(timeout=60)
+                logger.info("Process pool shut down successfully")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"No process service to shutdown: {e}")
+    else:
+        logger.info("Process-isolated endpoint was disabled, no pool to shutdown")
 
     logger.info("Application shutdown completed")
 

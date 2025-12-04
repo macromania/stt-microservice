@@ -26,6 +26,7 @@ async def collect_process_memory_metrics() -> None:
 
     The task is safe to run even if the process service hasn't been
     initialized - it will simply skip collection until the service exists.
+    If process-isolated feature is disabled, sets worker metrics to 0.
     """
     from src.api.stt import (
         process_parent_memory_bytes,
@@ -34,9 +35,36 @@ async def collect_process_memory_metrics() -> None:
         process_worker_count,
         process_workers_memory_bytes,
     )
+    from src.core.config import get_settings
     from src.core.process_metrics import ProcessPoolMonitor
 
-    logger.info("Starting process memory collector (interval: 15s)")
+    settings = get_settings()
+
+    logger.info("Starting process memory collector (interval: 5s)")
+
+    # Check if process-isolated feature is disabled
+    if not settings.enable_process_isolated:
+        logger.info("Process memory collector: worker pool disabled, monitoring parent only")
+        # Set worker metrics to 0 and monitor parent only
+        process_workers_memory_bytes.set(0)
+        process_worker_count.set(0)
+        process_per_worker_memory_bytes.set(0)
+
+        # Keep monitoring parent process memory
+        monitor = ProcessPoolMonitor()
+        while True:
+            try:
+                memory_stats = monitor.get_aggregate_memory_usage()
+                process_parent_memory_bytes.set(memory_stats["parent_rss_bytes"])
+                process_total_memory_bytes.set(memory_stats["parent_rss_bytes"])
+                logger.debug(f"Memory stats (parent only): {memory_stats['parent_rss_bytes'] / 1024 / 1024:.1f}MB")
+            except asyncio.CancelledError:
+                logger.info("Process memory collector cancelled")
+                raise
+            except Exception as e:
+                logger.warning(f"Error collecting parent memory metrics: {e}")
+            await asyncio.sleep(5)
+        return
 
     # Wait a bit for service initialization
     await asyncio.sleep(5)

@@ -5,7 +5,7 @@ metadata:
   labels:
     app: stt-service
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: stt-service

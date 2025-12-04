@@ -231,6 +231,41 @@ make load-test
 
 The trade-off: Process isolation shows ~4-5 seconds higher average request duration compared to thread-based processing (16s vs 11s average), but guarantees zero memory leaks for 24/7 operation. This overhead comes from inter-process communication and pool management, not from spawning new processes per request. The process pool (12 workers with recycling) maintains warm worker processes that are reused across requests, making the isolation cost relatively small compared to the memory safety benefits.
 
+### Feature Flag: Disabling Process-Isolated Endpoint
+
+For testing or debugging purposes, you can completely disable the `/transcriptions/process-isolated` endpoint and prevent worker process creation. This allows clean isolation testing of the `/transcriptions/sync` endpoint without process-isolated workers.
+
+**To disable the process-isolated endpoint:**
+
+```bash
+# In your .env file or as environment variable
+ENABLE_PROCESS_ISOLATED=false
+```
+
+**What happens when disabled:**
+
+- `/transcriptions/process-isolated` endpoint returns `503 Service Unavailable`
+- No worker processes are created (0 workers)
+- Memory metrics show only parent process (workers = 0 GiB)
+- `/transcriptions/sync` endpoint remains fully functional
+- Pool recycler and worker monitoring are automatically disabled
+
+**Use cases:**
+
+- **Testing `/sync` endpoint in isolation**: Verify memory behavior without worker process interference
+- **Memory debugging**: Isolate parent process memory from worker memory
+- **Resource optimization**: Reduce memory footprint when process isolation isn't needed
+- **Development**: Faster startup during local development
+
+**To re-enable (default):**
+
+```bash
+ENABLE_PROCESS_ISOLATED=true
+# Or simply remove the variable (defaults to true)
+```
+
+The feature flag is documented in `.env.example` with all other configuration options.
+
 ### Configuration
 
 Key settings in `.env.k6`:
