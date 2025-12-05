@@ -83,31 +83,63 @@ if [ ! -d "${AUDIO_DIR}" ]; then
     
     # Count total files for progress
     FLAC_COUNT=$(find "${AUDIO_DIR}" -name "*.flac" -type f | wc -l)
-    echo "Converting ${FLAC_COUNT} FLAC files to WAV..."
-    echo ""
     
-    CONVERTED=0
-    # Convert all FLAC files to WAV
+    if [ ${FLAC_COUNT} -eq 0 ]; then
+        echo "No FLAC files found - all files already converted to WAV"
+        echo ""
+    else
+        echo "Converting ${FLAC_COUNT} FLAC files to WAV..."
+        echo ""
+        
+        CONVERTED=0
+        ALREADY_EXISTS=0
+        ERRORS=0
+        # Convert all FLAC files to WAV
     while IFS= read -r flac_file; do
         wav_file="${flac_file%.flac}.wav"
-        if [ ! -f "${wav_file}" ]; then
-            # Convert using ffmpeg (suppress output for cleaner display)
-            ffmpeg -i "${flac_file}" -ar 16000 -ac 1 -sample_fmt s16 "${wav_file}" -loglevel error -y
-            CONVERTED=$((CONVERTED + 1))
-            # Show progress every 100 files
-            if [ $((CONVERTED % 100)) -eq 0 ]; then
-                echo "  Converted ${CONVERTED}/${FLAC_COUNT} files..."
-            fi
+        if [ -f "${wav_file}" ]; then
+            # WAV file already exists, skip conversion
+            ALREADY_EXISTS=$((ALREADY_EXISTS + 1))
+            continue
         fi
-    done < <(find "${AUDIO_DIR}" -name "*.flac" -type f)
-    
-    echo "✓ Converted ${CONVERTED} FLAC files to WAV format"
-    echo ""
-    
-    # Remove original FLAC files to save space
-    echo "Removing original FLAC files to save space..."
-    find "${AUDIO_DIR}" -name "*.flac" -type f -delete
-    echo "✓ Original FLAC files removed"
+        
+        # Verify input file exists before conversion
+        if [ ! -f "${flac_file}" ]; then
+            ERRORS=$((ERRORS + 1))
+            continue
+        fi
+        
+        # Convert using ffmpeg (suppress output for cleaner display)
+        if ! ffmpeg -i "${flac_file}" -ar 16000 -ac 1 -sample_fmt s16 "${wav_file}" -loglevel error -y 2>&1; then
+            echo "Error converting: ${flac_file}"
+            echo "Skipping this file and continuing..."
+            ERRORS=$((ERRORS + 1))
+            continue
+        fi
+        
+        CONVERTED=$((CONVERTED + 1))
+        # Show progress every 100 files
+        if [ $((CONVERTED % 100)) -eq 0 ]; then
+            echo "  Converted ${CONVERTED}/${FLAC_COUNT} files..."
+        fi
+        done < <(find "${AUDIO_DIR}" -name "*.flac" -type f)
+        
+        echo "✓ Converted ${CONVERTED} new FLAC files to WAV format"
+        if [ ${ALREADY_EXISTS} -gt 0 ]; then
+            echo "  Skipped ${ALREADY_EXISTS} files (already converted)"
+        fi
+        if [ ${ERRORS} -gt 0 ]; then
+            echo "⚠ Errors encountered: ${ERRORS} files"
+        fi
+        echo ""
+        
+        # Remove original FLAC files to save space
+        if [ ${FLAC_COUNT} -gt 0 ]; then
+            echo "Removing original FLAC files to save space..."
+            find "${AUDIO_DIR}" -name "*.flac" -type f -delete
+            echo "✓ Original FLAC files removed"
+        fi
+    fi
 fi
 
 echo ""
@@ -149,8 +181,9 @@ TOTAL_SIZE=$(find "${AUDIO_DIR}" -name "*.wav" -type f -exec stat --format='%s' 
 echo "  Total files: ${FILE_COUNT}"
 echo "  Total size: ${TOTAL_SIZE}"
 echo "  Format: WAV (16kHz, 16-bit, mono)"
-echo "  Average size: $(find "${AUDIO_DIR}" -name "*.wav" -type f -exec stat --format='%s' {} + | \
-    awk '{sum+=$1; count++} END {printf "%.2f KB", sum/count/1024}')"
+AVG_SIZE=$(find "${AUDIO_DIR}" -name "*.wav" -type f -exec stat --format='%s' {} + | \
+    awk '{sum+=$1; count++} END {printf "%.2f KB", sum/count/1024}')
+echo "  Average size: ${AVG_SIZE}"
 
 SPEAKER_COUNT=$(find "${AUDIO_DIR}" -mindepth 1 -maxdepth 1 -type d | wc -l)
 echo "  Speakers: ${SPEAKER_COUNT}"
