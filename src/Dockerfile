@@ -73,4 +73,4 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # Each worker recycles after 500 requests (~83s at 6 req/s) to release SDK memory
 # 2 workers × 2GiB = 4GiB baseline, 6GiB peak during restart (within K8s limits)
 # Worker restart every ~42s, always 1+ worker serving traffic
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3", "--limit-max-requests", "500", "--timeout-graceful-shutdown", "30"]
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3"]
