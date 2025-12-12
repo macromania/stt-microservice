@@ -193,6 +193,14 @@ update_python_app() {
   
   print_success "Container app found" >&2
   
+  # Get managed identity client ID for DefaultAzureCredential
+  print_progress "Retrieving managed identity client ID..." >&2
+  local client_id
+  client_id=$(az identity show --name "${AZURE_MANAGED_IDENTITY_PYTHON}" --resource-group "${rg_name}" --query "clientId" -o tsv 2>/dev/null) || {
+    exit_error "Failed to retrieve client ID for managed identity '${AZURE_MANAGED_IDENTITY_PYTHON}'" 1
+  }
+  print_info "Client ID: ${client_id}" >&2
+  
   print_progress "Updating container app with new image..." >&2
   az containerapp update \
     --name "${app_name}" \
@@ -205,7 +213,8 @@ update_python_app() {
       "STT_AZURE_SPEECH_RESOURCE_NAME=${STT_AZURE_SPEECH_RESOURCE_NAME}" \
       "STT_AZURE_SPEECH_REGION=${STT_AZURE_SPEECH_REGION}" \
       "STT_MAX_FILE_SIZE_MB=${STT_MAX_FILE_SIZE_MB:-100}" \
-      "STT_MAX_DURATION_MINUTES=${STT_MAX_DURATION_MINUTES:-120}" || {
+      "STT_MAX_DURATION_MINUTES=${STT_MAX_DURATION_MINUTES:-120}" \
+      "AZURE_CLIENT_ID=${client_id}" || {
     exit_error "Failed to update container app '${app_name}'" 1
   }
   
@@ -263,6 +272,14 @@ update_java_app() {
   
   print_success "Container app found"
   
+  # Get managed identity client ID for DefaultAzureCredential
+  print_progress "Retrieving managed identity client ID..."
+  local client_id
+  client_id=$(az identity show --name "${AZURE_MANAGED_IDENTITY_JAVA}" --resource-group "${rg_name}" --query "clientId" -o tsv 2>/dev/null) || {
+    exit_error "Failed to retrieve client ID for managed identity '${AZURE_MANAGED_IDENTITY_JAVA}'" 1
+  }
+  print_info "Client ID: ${client_id}"
+  
   print_progress "Updating container app with new image..."
   az containerapp update \
     --name "${app_name}" \
@@ -271,7 +288,8 @@ update_java_app() {
     --set-env-vars \
       "APP_ENV=${APP_ENV}" \
       "STT_AZURE_SPEECH_RESOURCE_NAME=${STT_AZURE_SPEECH_RESOURCE_NAME}" \
-      "STT_AZURE_SPEECH_REGION=${STT_AZURE_SPEECH_REGION}" || {
+      "STT_AZURE_SPEECH_REGION=${STT_AZURE_SPEECH_REGION}" \
+      "AZURE_CLIENT_ID=${client_id}" || {
     exit_error "Failed to update container app '${app_name}'" 1
   }
   
