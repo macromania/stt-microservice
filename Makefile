@@ -43,6 +43,9 @@ setup-local-cluster: ## Setup Minikube cluster with Prometheus and Grafana
 deploy-local: ## Deploy STT service to local Minikube cluster (full deployment)
 	@./scripts/deploy-local.sh
 
+deploy-azure: ## Deploy STT service to Azure Container Apps (ACA)
+	@./scripts/deploy-azure.sh
+
 k8s-azure-auth: ## Create/update Azure credentials secret for K8s (token expires in ~1hr)
 	@./scripts/create-k8s-azure-credentials.sh
 

@@ -1,0 +1,78 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Environment files
+.env
+.env.*
+env.remote
+env.remote.*
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Reports and samples
+reports/
+samples/
+
+# Scripts (not needed in container)
+scripts/
+
+# Kubernetes
+k8s/
+
+# Java service (not needed for Python image)
+stt-java-service/
+
+# Makefiles
+Makefile
+
+# Load testing
+load-test.js

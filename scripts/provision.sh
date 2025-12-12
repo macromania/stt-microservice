@@ -32,12 +32,24 @@ source "${SCRIPT_DIR}/utils.sh"
 readonly RG_PREFIX="rg"         # Resource Group abbreviation
 readonly FOUNDRY_PREFIX="foundry" # AI Foundry resource abbreviation
 readonly PROJECT_SUFFIX="project" # Project name suffix
+readonly ACR_PREFIX="acr"       # Azure Container Registry abbreviation
+readonly CAE_PREFIX="cae"       # Container Apps Environment abbreviation
+readonly MANAGED_ID_PREFIX="id" # Managed Identity abbreviation
 readonly SKU="S0"               # Standard tier for AIServices
 # Dual RBAC roles required for full access
 readonly RBAC_ROLE_GENERAL="Cognitive Services User"       # General inference API access
 readonly RBAC_ROLE_SPEECH="Cognitive Services Speech User" # Speech STT/TTS access
 readonly ENV_FILE=".env"
 readonly DEFAULT_ENV="dev"      # Default environment
+
+# Container Apps configuration
+readonly PYTHON_APP_NAME="stt-python"
+readonly JAVA_APP_NAME="stt-java"
+# Resource allocations for load testing
+readonly PYTHON_CPU="4.0"       # 4 vCPU cores
+readonly PYTHON_MEMORY="8Gi"    # 8 GiB RAM
+readonly JAVA_CPU="2.0"         # 2 vCPU cores
+readonly JAVA_MEMORY="4Gi"      # 4 GiB RAM
 
 ###############################################################################
 # Helper Functions
@@ -254,14 +266,275 @@ assign_rbac_role() {
   print_warning "Note: RBAC permissions may take 1-2 minutes to propagate"
 }
 
+# Create or verify Azure Container Registry
+create_container_registry() {
+  local rg_name="$1"
+  local location="$2"
+  local acr_name="$3"
+  
+  print_step 7 "Creating Azure Container Registry"
+  
+  if az acr show --name "${acr_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "ACR '${acr_name}' already exists"
+    local existing_sku
+    existing_sku=$(az acr show --name "${acr_name}" --resource-group "${rg_name}" --query "sku.name" -o tsv)
+    print_info "SKU: ${existing_sku}"
+  else
+    print_progress "Creating Azure Container Registry '${acr_name}'..."
+    az acr create \
+      --name "${acr_name}" \
+      --resource-group "${rg_name}" \
+      --location "${location}" \
+      --sku "Basic" \
+      --admin-enabled true \
+      --output none
+    
+    print_success "ACR created: ${acr_name}"
+  fi
+  
+  local login_server
+  login_server=$(az acr show --name "${acr_name}" --resource-group "${rg_name}" --query "loginServer" -o tsv)
+  print_info "Login server: ${login_server}"
+}
+
+# Create or verify Container Apps Environment
+create_container_apps_environment() {
+  local rg_name="$1"
+  local location="$2"
+  local env_name="$3"
+  
+  print_step 8 "Creating Container Apps Environment"
+  
+  if az containerapp env show --name "${env_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "Container Apps environment '${env_name}' already exists"
+    local existing_location
+    existing_location=$(az containerapp env show --name "${env_name}" --resource-group "${rg_name}" --query "location" -o tsv)
+    print_info "Location: ${existing_location}"
+  else
+    print_progress "Creating Container Apps environment '${env_name}'..."
+    az containerapp env create \
+      --name "${env_name}" \
+      --resource-group "${rg_name}" \
+      --location "${location}" \
+      --output none
+    
+    print_success "Container Apps environment created: ${env_name}"
+  fi
+}
+
+# Create or verify managed identities and assign RBAC
+create_managed_identities() {
+  local rg_name="$1"
+  local location="$2"
+  local python_id_name="$3"
+  local java_id_name="$4"
+  local foundry_resource_name="$5"
+  
+  print_step 9 "Creating Managed Identities"
+  
+  local resource_id
+  resource_id=$(az cognitiveservices account show \
+    --name "${foundry_resource_name}" \
+    --resource-group "${rg_name}" \
+    --query "id" -o tsv)
+  
+  # Create Python managed identity
+  if az identity show --name "${python_id_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "Managed identity '${python_id_name}' already exists"
+  else
+    print_progress "Creating managed identity '${python_id_name}'..."
+    az identity create \
+      --name "${python_id_name}" \
+      --resource-group "${rg_name}" \
+      --location "${location}" \
+      --output none
+    print_success "Managed identity created: ${python_id_name}"
+  fi
+  
+  # Create Java managed identity
+  if az identity show --name "${java_id_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "Managed identity '${java_id_name}' already exists"
+  else
+    print_progress "Creating managed identity '${java_id_name}'..."
+    az identity create \
+      --name "${java_id_name}" \
+      --resource-group "${rg_name}" \
+      --location "${location}" \
+      --output none
+    print_success "Managed identity created: ${java_id_name}"
+  fi
+  
+  # Assign RBAC roles to Python identity
+  local python_principal_id
+  python_principal_id=$(az identity show --name "${python_id_name}" --resource-group "${rg_name}" --query "principalId" -o tsv)
+  print_info "Python identity principal ID: ${python_principal_id}"
+  
+  local roles=("${RBAC_ROLE_GENERAL}" "${RBAC_ROLE_SPEECH}")
+  for role in "${roles[@]}"; do
+    if az role assignment list \
+      --assignee "${python_principal_id}" \
+      --scope "${resource_id}" \
+      --role "${role}" \
+      --query "[0].id" -o tsv &> /dev/null | grep -q "."; then
+      print_info "Python identity: '${role}' already assigned"
+    else
+      print_progress "Assigning '${role}' to Python identity..."
+      az role assignment create \
+        --assignee-object-id "${python_principal_id}" \
+        --assignee-principal-type "ServicePrincipal" \
+        --role "${role}" \
+        --scope "${resource_id}" \
+        --output none
+      print_success "Role assigned: ${role}"
+    fi
+  done
+  
+  # Assign RBAC roles to Java identity
+  local java_principal_id
+  java_principal_id=$(az identity show --name "${java_id_name}" --resource-group "${rg_name}" --query "principalId" -o tsv)
+  print_info "Java identity principal ID: ${java_principal_id}"
+  
+  for role in "${roles[@]}"; do
+    if az role assignment list \
+      --assignee "${java_principal_id}" \
+      --scope "${resource_id}" \
+      --role "${role}" \
+      --query "[0].id" -o tsv &> /dev/null | grep -q "."; then
+      print_info "Java identity: '${role}' already assigned"
+    else
+      print_progress "Assigning '${role}' to Java identity..."
+      az role assignment create \
+        --assignee-object-id "${java_principal_id}" \
+        --assignee-principal-type "ServicePrincipal" \
+        --role "${role}" \
+        --scope "${resource_id}" \
+        --output none
+      print_success "Role assigned: ${role}"
+    fi
+  done
+  
+  print_warning "Note: RBAC permissions may take 1-2 minutes to propagate"
+}
+
+# Create container apps with hello-world image
+create_container_apps() {
+  local rg_name="$1"
+  local cae_name="$2"
+  local acr_name="$3"
+  local acr_login_server="$4"
+  local python_id_name="$5"
+  local java_id_name="$6"
+  local environment="$7"
+  
+  print_step 10 "Creating Container Apps"
+  
+  local python_app_name="${PYTHON_APP_NAME}-${environment}"
+  local java_app_name="${JAVA_APP_NAME}-${environment}"
+  
+  # Get managed identity resource IDs
+  local python_identity_id
+  python_identity_id=$(az identity show --name "${python_id_name}" --resource-group "${rg_name}" --query "id" -o tsv)
+  
+  local java_identity_id
+  java_identity_id=$(az identity show --name "${java_id_name}" --resource-group "${rg_name}" --query "id" -o tsv)
+  
+  # Get ACR credentials
+  local acr_username
+  local acr_password
+  acr_username=$(az acr credential show --name "${acr_name}" --query "username" -o tsv)
+  acr_password=$(az acr credential show --name "${acr_name}" --query "passwords[0].value" -o tsv)
+  
+  # Create Python container app
+  if az containerapp show --name "${python_app_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "Python container app '${python_app_name}' already exists"
+  else
+    print_progress "Creating Python container app '${python_app_name}'..."
+    
+    az containerapp create \
+      --name "${python_app_name}" \
+      --resource-group "${rg_name}" \
+      --environment "${cae_name}" \
+      --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
+      --registry-server "${acr_login_server}" \
+      --registry-username "${acr_username}" \
+      --registry-password "${acr_password}" \
+      --user-assigned "${python_identity_id}" \
+      --cpu "${PYTHON_CPU}" \
+      --memory "${PYTHON_MEMORY}" \
+      --min-replicas 1 \
+      --max-replicas 3 \
+      --target-port 80 \
+      --ingress external \
+      --output none || {
+      exit_error "Failed to create Python container app '${python_app_name}'" 1
+    }
+    
+    print_success "Python container app created: ${python_app_name}"
+  fi
+  
+  # Get Python app FQDN
+  local python_fqdn
+  python_fqdn=$(az containerapp show \
+    --name "${python_app_name}" \
+    --resource-group "${rg_name}" \
+    --query "properties.configuration.ingress.fqdn" -o tsv)
+  print_info "Python app URL: https://${python_fqdn}"
+  
+  # Create Java container app
+  if az containerapp show --name "${java_app_name}" --resource-group "${rg_name}" &> /dev/null; then
+    print_info "Java container app '${java_app_name}' already exists"
+  else
+    print_progress "Creating Java container app '${java_app_name}'..."
+    
+    az containerapp create \
+      --name "${java_app_name}" \
+      --resource-group "${rg_name}" \
+      --environment "${cae_name}" \
+      --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
+      --registry-server "${acr_login_server}" \
+      --registry-username "${acr_username}" \
+      --registry-password "${acr_password}" \
+      --user-assigned "${java_identity_id}" \
+      --cpu "${JAVA_CPU}" \
+      --memory "${JAVA_MEMORY}" \
+      --min-replicas 1 \
+      --max-replicas 3 \
+      --target-port 80 \
+      --ingress external \
+      --output none || {
+      exit_error "Failed to create Java container app '${java_app_name}'" 1
+    }
+    
+    print_success "Java container app created: ${java_app_name}"
+  fi
+  
+  # Get Java app FQDN
+  local java_fqdn
+  java_fqdn=$(az containerapp show \
+    --name "${java_app_name}" \
+    --resource-group "${rg_name}" \
+    --query "properties.configuration.ingress.fqdn" -o tsv)
+  print_info "Java app URL: https://${java_fqdn}"
+  
+  echo ""
+  print_success "Container apps created with hello-world images"
+  print_info "Run ./scripts/deploy-azure.sh to deploy your STT services"
+}
+
 # Generate .env file
 generate_env_file() {
   local foundry_resource_name="$1"
   local project_name="$2"
   local region="$3"
   local environment="$4"
+  local acr_name="$5"
+  local cae_name="$6"
+  local python_id_name="$7"
+  local java_id_name="$8"
+  local python_app_name="$9"
+  local java_app_name="${10}"
   
-  print_step 6 "Generating Environment Configuration"
+  print_step 11 "Generating Environment Configuration"
   
   if [ -f "${ENV_FILE}" ]; then
     print_warning "Existing .env file found"
@@ -291,6 +564,14 @@ STT_AZURE_SPEECH_REGION=${region}
 # STT Processing Limits
 STT_MAX_FILE_SIZE_MB=100
 STT_MAX_DURATION_MINUTES=120
+
+# Azure Container Infrastructure (for deployment)
+AZURE_CONTAINER_REGISTRY=${acr_name}
+AZURE_CONTAINER_APPS_ENVIRONMENT=${cae_name}
+AZURE_MANAGED_IDENTITY_PYTHON=${python_id_name}
+AZURE_MANAGED_IDENTITY_JAVA=${java_id_name}
+AZURE_CONTAINER_APP_PYTHON=${python_app_name}
+AZURE_CONTAINER_APP_JAVA=${java_app_name}
 EOF
   
   print_success "Environment file created: ${ENV_FILE}"
@@ -308,36 +589,53 @@ display_summary() {
   local region="$4"
   local project="$5"
   local environment="$6"
+  local acr_name="$7"
+  local cae_name="$8"
+  local python_id_name="$9"
+  local java_id_name="${10}"
   
   print_completion "Provisioning Complete!"
   
   echo "📋 Resource Summary (Azure CAF Naming):"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  Project:             ${project}"
-  echo "  Environment:         ${environment}"
-  echo "  Region:              ${region}"
-  echo "  Resource Group:      ${rg_name}"
-  echo "  AI Foundry Resource: ${foundry_resource_name}"
-  echo "  AI Foundry Project:  ${project_name}"
-  echo "  SKU:                 ${SKU}"
-  echo "  RBAC Roles:          ${RBAC_ROLE_GENERAL}"
-  echo "                       ${RBAC_ROLE_SPEECH}"
-  echo "  Config File:         ${ENV_FILE}"
+  echo "  Project:                ${project}"
+  echo "  Environment:            ${environment}"
+  echo "  Region:                 ${region}"
+  echo "  Resource Group:         ${rg_name}"
+  echo ""
+  echo "  AI Services:"
+  echo "  ├─ Foundry Resource:    ${foundry_resource_name}"
+  echo "  ├─ Foundry Project:     ${project_name}"
+  echo "  └─ SKU:                 ${SKU}"
+  echo ""
+  echo "  Container Infrastructure:"
+  echo "  ├─ Container Registry:  ${acr_name}"
+  echo "  ├─ Apps Environment:    ${cae_name}"
+  echo "  ├─ Python Identity:     ${python_id_name}"
+  echo "  └─ Java Identity:       ${java_id_name}"
+  echo ""
+  echo "  Resource Allocations:"
+  echo "  ├─ Python Service:      ${PYTHON_CPU} CPU, ${PYTHON_MEMORY} RAM"
+  echo "  └─ Java Service:        ${JAVA_CPU} CPU, ${JAVA_MEMORY} RAM"
+  echo ""
+  echo "  RBAC Roles:             ${RBAC_ROLE_GENERAL}"
+  echo "                          ${RBAC_ROLE_SPEECH}"
+  echo "  Config File:            ${ENV_FILE}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
   print_info "Next steps:"
   echo "  1. Review the generated .env file"
   echo "  2. Wait 1-2 minutes for RBAC permissions to propagate"
-  echo "  3. Run your application with DefaultAzureCredential authentication"
+  echo "  3. Run ./scripts/deploy-azure.sh to build and deploy applications"
   echo "  4. Access AI Foundry portal: https://ai.azure.com"
   echo ""
   
   print_info "Useful commands:"
-  echo "  • View AI Foundry resource: az cognitiveservices account show --name ${foundry_resource_name} --resource-group ${rg_name}"
-  echo "  • List projects: az cognitiveservices account project list --account-name ${foundry_resource_name}"
+  echo "  • View ACR: az acr show --name ${acr_name} --resource-group ${rg_name}"
+  echo "  • View Container Apps Env: az containerapp env show --name ${cae_name} --resource-group ${rg_name}"
+  echo "  • Check managed identity: az identity show --name ${python_id_name} --resource-group ${rg_name}"
   echo "  • Test auth: az account get-access-token --resource https://cognitiveservices.azure.com"
-  echo "  • Check RBAC: az role assignment list --assignee \$(az ad signed-in-user show --query id -o tsv) --scope \$(az cognitiveservices account show --name ${foundry_resource_name} --resource-group ${rg_name} --query id -o tsv)"
   echo ""
 }
 
@@ -373,14 +671,24 @@ main() {
   FOUNDRY_RESOURCE_NAME="${FOUNDRY_PREFIX}-${PROJECT_NAME}-${ENVIRONMENT}-${REGION}"
   PROJECT_DISPLAY_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${PROJECT_SUFFIX}"
   
+  # Container infrastructure names (ACR must be alphanumeric only)
+  ACR_NAME="${ACR_PREFIX}${PROJECT_NAME//-/}${ENVIRONMENT}${REGION//-/}"
+  CAE_NAME="${CAE_PREFIX}-${PROJECT_NAME}-${ENVIRONMENT}-${REGION}"
+  PYTHON_IDENTITY_NAME="${MANAGED_ID_PREFIX}-${PROJECT_NAME}-${PYTHON_APP_NAME}-${ENVIRONMENT}"
+  JAVA_IDENTITY_NAME="${MANAGED_ID_PREFIX}-${PROJECT_NAME}-${JAVA_APP_NAME}-${ENVIRONMENT}"
+  
   echo ""
   print_info "Configuration summary:"
-  echo "  • Project:             ${PROJECT_NAME}"
-  echo "  • Environment:         ${ENVIRONMENT}"
-  echo "  • Region:              ${REGION}"
-  echo "  • Resource Group:      ${RESOURCE_GROUP}"
-  echo "  • AI Foundry Resource: ${FOUNDRY_RESOURCE_NAME}"
-  echo "  • AI Foundry Project:  ${PROJECT_DISPLAY_NAME}"
+  echo "  • Project:                ${PROJECT_NAME}"
+  echo "  • Environment:            ${ENVIRONMENT}"
+  echo "  • Region:                 ${REGION}"
+  echo "  • Resource Group:         ${RESOURCE_GROUP}"
+  echo "  • AI Foundry Resource:    ${FOUNDRY_RESOURCE_NAME}"
+  echo "  • AI Foundry Project:     ${PROJECT_DISPLAY_NAME}"
+  echo "  • Container Registry:     ${ACR_NAME}"
+  echo "  • Container Apps Env:     ${CAE_NAME}"
+  echo "  • Python Identity:        ${PYTHON_IDENTITY_NAME}"
+  echo "  • Java Identity:          ${JAVA_IDENTITY_NAME}"
   echo ""
   
   read -rp "Proceed with provisioning? (y/n): " confirm
@@ -415,12 +723,35 @@ main() {
   assign_rbac_role "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${USER_OBJECT_ID}"
   echo ""
   
-  # Step 6: Generate .env
-  generate_env_file "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${ENVIRONMENT}"
+  # Step 6: Create Azure Container Registry
+  create_container_registry "${RESOURCE_GROUP}" "${ACTUAL_REGION}" "${ACR_NAME}"
+  echo ""
+  
+  # Get ACR login server for container apps
+  ACR_LOGIN_SERVER=$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query "loginServer" -o tsv)
+  
+  # Step 7: Create Container Apps Environment
+  create_container_apps_environment "${RESOURCE_GROUP}" "${ACTUAL_REGION}" "${CAE_NAME}"
+  echo ""
+  
+  # Step 8: Create Managed Identities and assign RBAC
+  create_managed_identities "${RESOURCE_GROUP}" "${ACTUAL_REGION}" "${PYTHON_IDENTITY_NAME}" "${JAVA_IDENTITY_NAME}" "${FOUNDRY_RESOURCE_NAME}"
+  echo ""
+  
+  # Step 9: Create Container Apps
+  create_container_apps "${RESOURCE_GROUP}" "${CAE_NAME}" "${ACR_NAME}" "${ACR_LOGIN_SERVER}" "${PYTHON_IDENTITY_NAME}" "${JAVA_IDENTITY_NAME}" "${ENVIRONMENT}"
+  echo ""
+  
+  # Define container app names for .env
+  PYTHON_APP_NAME_FULL="${PYTHON_APP_NAME}-${ENVIRONMENT}"
+  JAVA_APP_NAME_FULL="${JAVA_APP_NAME}-${ENVIRONMENT}"
+  
+  # Step 10: Generate .env
+  generate_env_file "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${ENVIRONMENT}" "${ACR_NAME}" "${CAE_NAME}" "${PYTHON_IDENTITY_NAME}" "${JAVA_IDENTITY_NAME}" "${PYTHON_APP_NAME_FULL}" "${JAVA_APP_NAME_FULL}"
   echo ""
   
   # Display summary
-  display_summary "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${PROJECT_NAME}" "${ENVIRONMENT}"
+  display_summary "${RESOURCE_GROUP}" "${FOUNDRY_RESOURCE_NAME}" "${PROJECT_DISPLAY_NAME}" "${ACTUAL_REGION}" "${PROJECT_NAME}" "${ENVIRONMENT}" "${ACR_NAME}" "${CAE_NAME}" "${PYTHON_IDENTITY_NAME}" "${JAVA_IDENTITY_NAME}"
 }
 
 # Run main function

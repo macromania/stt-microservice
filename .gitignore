@@ -349,3 +349,6 @@ compliance-report.md
 
 # k6 load testing output
 reports/
+
+env.remote
+env.remote.*
