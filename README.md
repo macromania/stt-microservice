@@ -289,6 +289,26 @@ Extensive load testing has validated the memory leak fix and performance charact
 
 See [detailed test results](./docs/test-results.md) for detailed analysis, performance comparisons, and Grafana dashboard screenshots showing memory behavior under load.
 
+## Azure Deployment
+
+Deploy the STT microservice to Azure Container Apps with a two-step workflow:
+
+### 1. One-Time Infrastructure Setup
+
+```bash
+make provision
+```
+
+Creates Azure AI Foundry resources, Container Registry, Container Apps Environment, managed identities with RBAC, and generates `.env` configuration (see [Provision Azure Resources](#1-provision-azure-resources) above).
+
+### 2. Fast Iterative Deployments
+
+```bash
+make deploy-azure
+```
+
+Builds Docker images using ACR native build tasks, pushes to registry, and updates Container Apps with new images. Generates `env.remote` with service URLs for testing. Run this after code changes for quick redeployment without infrastructure modifications.
+
 ## Local Deployment to Minikube
 
 The microservice can be deployed to a local Minikube cluster with Prometheus and Grafana for monitoring. The deployment includes automatic metrics collection for CPU, memory usage, and HTTP request metrics.
