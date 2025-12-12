@@ -364,7 +364,6 @@ EOF
 # Display deployment summary
 display_summary() {
   local python_fqdn="$1"
-  local java_fqdn="$2"
   
   print_completion "Deployment Complete!"
   
@@ -377,13 +376,6 @@ display_summary() {
   echo "  ├─ CPU:      4.0 cores"
   echo "  └─ Memory:   8Gi"
   echo ""
-  echo "  Java STT Service:"
-  echo "  ├─ URL:      https://${java_fqdn}"
-  echo "  ├─ Health:   https://${java_fqdn}/actuator/health"
-  echo "  ├─ CPU:      2.0 cores"
-  echo "  └─ Memory:   4Gi"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
   
   print_info "Next steps:"
   echo "  1. Test services using curl or your browser"
@@ -394,7 +386,6 @@ display_summary() {
   
   print_info "Quick test commands:"
   echo "  • Python health: curl https://${python_fqdn}/health"
-  echo "  • Java health:   curl https://${java_fqdn}/actuator/health"
   echo ""
 }
 
