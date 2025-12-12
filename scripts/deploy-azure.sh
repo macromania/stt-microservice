@@ -206,6 +206,8 @@ update_python_app() {
     --name "${app_name}" \
     --resource-group "${rg_name}" \
     --image "${image_name}" \
+    --min-replicas 1 \
+    --max-replicas 3 \
     --set-env-vars \
       "APP_ENV=dev" \
       "ENABLE_PROCESS_ISOLATED=false" \
@@ -285,6 +287,8 @@ update_java_app() {
     --name "${app_name}" \
     --resource-group "${rg_name}" \
     --image "${image_name}" \
+    --min-replicas 1 \
+    --max-replicas 3 \
     --set-env-vars \
       "APP_ENV=${APP_ENV}" \
       "STT_AZURE_SPEECH_RESOURCE_NAME=${STT_AZURE_SPEECH_RESOURCE_NAME}" \
