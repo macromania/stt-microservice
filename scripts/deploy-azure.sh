@@ -206,10 +206,11 @@ update_python_app() {
     --name "${app_name}" \
     --resource-group "${rg_name}" \
     --image "${image_name}" \
-    --min-replicas 1 \
+    --min-replicas 3 \
     --max-replicas 3 \
     --set-env-vars \
       "APP_ENV=dev" \
+      "APP_VERSION=$(date '+%Y%m%d_%H%M%S')" \
       "ENABLE_PROCESS_ISOLATED=false" \
       "APP_LOG_LEVEL=${APP_LOG_LEVEL:-INFO}" \
       "STT_AZURE_SPEECH_RESOURCE_NAME=${STT_AZURE_SPEECH_RESOURCE_NAME}" \
@@ -287,7 +288,7 @@ update_java_app() {
     --name "${app_name}" \
     --resource-group "${rg_name}" \
     --image "${image_name}" \
-    --min-replicas 1 \
+    --min-replicas 3 \
     --max-replicas 3 \
     --set-env-vars \
       "APP_ENV=${APP_ENV}" \
@@ -430,7 +431,7 @@ main() {
   # generate_remote_env "${PYTHON_FQDN}" "${JAVA_FQDN}"
   
   # Display summary
-  display_summary "${PYTHON_FQDN}"
+  #display_summary "${PYTHON_FQDN}"
 }
 
 # Run main function

@@ -2456,4 +2456,332 @@ stt_load_test ✓ [======================================] 000/100 VUs  15m0s
 
 ## Azure Deployment - 3 Max Replicas, 3 Workers (No Optimization)
 
+### 1st Run
 
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=15.31s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.02%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.97%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 47810  53.037898/s
+    checks_succeeded...: 99.97% 47800 out of 47810
+    checks_failed......: 0.02%  10 out of 47810
+
+    ✗ status is 200
+      ↳  99% — ✓ 9560 / ✗ 2
+    ✗ has original_text
+      ↳  99% — ✓ 9560 / ✗ 2
+    ✗ has translated_text
+      ↳  99% — ✓ 9560 / ✗ 2
+    ✗ has segments array
+      ↳  99% — ✓ 9560 / ✗ 2
+    ✗ segments have required fields
+      ↳  99% — ✓ 9560 / ✗ 2
+
+    CUSTOM
+    audio_file_size_kb.............: min=54.451172 avg=233.196306 med=186.326172 p(90)=468.513672 p(95)=528.513672 p(99)=629.607422 max=650.701172
+    audio_files_used...............: 9562   10.60758/s
+    segment_count..................: min=0         avg=1.045711   med=1          p(90)=1          p(95)=1          p(99)=2          max=2         
+    transcription_length...........: min=25        avg=124.84068  med=109        p(90)=243        p(95)=273        p(99)=320        max=328       
+    transcription_success..........: 99.97% 9560 out of 9562
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.3s      avg=5.42s      med=3.15s      p(90)=9.83s      p(95)=15.31s     p(99)=34.92s     max=2m59s     
+      { expected_response:true }...: min=1.3s      avg=5.38s      med=3.14s      p(90)=9.82s      p(95)=15.24s     p(99)=34.84s     max=1m2s      
+    http_req_failed................: 0.02%  2 out of 9562
+    http_reqs......................: 9562   10.60758/s
+
+    EXECUTION
+    iteration_duration.............: min=2.75s     avg=7.87s      med=5.71s      p(90)=12.78s     p(95)=17.85s     p(99)=37.47s     max=3m3s      
+    iterations.....................: 9562   10.60758/s
+    vus............................: 4      min=0            max=100
+    vus_max........................: 100    min=100          max=100
+
+    NETWORK
+    data_received..................: 61 MB  67 kB/s
+    data_sent......................: 2.3 GB 2.6 MB/s
+
+
+
+
+running (15m01.4s), 000/100 VUs, 9562 complete and 0 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  15m0s
+```
+
+### 2nd Run
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=15.3s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.06%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.93%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 46950  52.078775/s
+    checks_succeeded...: 99.93% 46920 out of 46950
+    checks_failed......: 0.06%  30 out of 46950
+
+    ✗ status is 200
+      ↳  99% — ✓ 9384 / ✗ 6
+    ✗ has original_text
+      ↳  99% — ✓ 9384 / ✗ 6
+    ✗ has translated_text
+      ↳  99% — ✓ 9384 / ✗ 6
+    ✗ has segments array
+      ↳  99% — ✓ 9384 / ✗ 6
+    ✗ segments have required fields
+      ↳  99% — ✓ 9384 / ✗ 6
+
+    CUSTOM
+    audio_file_size_kb.............: min=54.451172 avg=231.777707 med=186.326172 p(90)=469.763672 p(95)=530.232422 p(99)=629.607422 max=650.701172
+    audio_files_used...............: 9391   10.416864/s
+    segment_count..................: min=0         avg=1.047741   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=25        avg=124.317086 med=107        p(90)=241        p(95)=276        p(99)=328        max=328       
+    transcription_success..........: 99.93% 9384 out of 9390
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.26s     avg=5.57s      med=3.15s      p(90)=11.15s     p(95)=15.3s      p(99)=38.77s     max=2m59s     
+      { expected_response:true }...: min=1.26s     avg=5.53s      med=3.15s      p(90)=11.03s     p(95)=15.27s     p(99)=38.17s     max=1m2s      
+    http_req_failed................: 0.06%  6 out of 9390
+    http_reqs......................: 9390   10.415755/s
+
+    EXECUTION
+    iteration_duration.............: min=2.74s     avg=8.03s      med=5.73s      p(90)=13.68s     p(95)=17.88s     p(99)=41.16s     max=3m1s      
+    iterations.....................: 9389   10.414646/s
+    vus............................: 3      min=0            max=100
+    vus_max........................: 100    min=100          max=100
+
+    NETWORK
+    data_received..................: 59 MB  66 kB/s
+    data_sent......................: 2.3 GB 2.5 MB/s
+
+
+
+
+running (15m01.5s), 000/100 VUs, 9389 complete and 2 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  15m0s
+```
+
+## Azure Deployment - 3 Replicas, 3 Workers (No Optimization)
+
+![Defult long run](./images/default-long-run-on-Azure.png)
+
+### 1st Run
+
+```
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=15.32s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.07%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.92%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 47740  52.722917/s
+    checks_succeeded...: 99.92% 47705 out of 47740
+    checks_failed......: 0.07%  35 out of 47740
+
+    ✗ status is 200
+      ↳  99% — ✓ 9541 / ✗ 7
+    ✗ has original_text
+      ↳  99% — ✓ 9541 / ✗ 7
+    ✗ has translated_text
+      ↳  99% — ✓ 9541 / ✗ 7
+    ✗ has segments array
+      ↳  99% — ✓ 9541 / ✗ 7
+    ✗ segments have required fields
+      ↳  99% — ✓ 9541 / ✗ 7
+
+    CUSTOM
+    audio_file_size_kb.............: min=54.451172 avg=233.419192 med=186.326172 p(90)=469.763672 p(95)=530.232422 p(99)=650.701172 max=650.701172
+    audio_files_used...............: 9549   10.545688/s
+    segment_count..................: min=0         avg=1.048108   med=1          p(90)=1          p(95)=2          p(99)=2          max=2         
+    transcription_length...........: min=25        avg=125.01735  med=107        p(90)=243        p(95)=276        p(99)=328        max=328       
+    transcription_success..........: 99.92% 9541 out of 9548
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.29s     avg=5.45s      med=3.08s      p(90)=10.83s     p(95)=15.32s     p(99)=33.5s      max=2m59s     
+      { expected_response:true }...: min=1.29s     avg=5.34s      med=3.08s      p(90)=10.7s      p(95)=15.26s     p(99)=33.22s     max=1m2s      
+    http_req_failed................: 0.07%  7 out of 9548
+    http_reqs......................: 9548   10.544583/s
+
+    EXECUTION
+    iteration_duration.............: min=2.8s      avg=7.9s       med=5.66s      p(90)=13.23s     p(95)=17.86s     p(99)=36.07s     max=3m2s      
+    iterations.....................: 9548   10.544583/s
+    vus............................: 1      min=0            max=100
+    vus_max........................: 100    min=100          max=100
+
+    NETWORK
+    data_received..................: 60 MB  67 kB/s
+    data_sent......................: 2.3 GB 2.6 MB/s
+
+
+
+
+running (15m05.5s), 000/100 VUs, 9548 complete and 1 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  15m0s
+
+```
+
+### 2nd Run
+
+```
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=15.79s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.02%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.97%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 47320  52.330479/s
+    checks_succeeded...: 99.97% 47310 out of 47320
+    checks_failed......: 0.02%  10 out of 47320
+
+    ✗ status is 200
+      ↳  99% — ✓ 9462 / ✗ 2
+    ✗ has original_text
+      ↳  99% — ✓ 9462 / ✗ 2
+    ✗ has translated_text
+      ↳  99% — ✓ 9462 / ✗ 2
+    ✗ has segments array
+      ↳  99% — ✓ 9462 / ✗ 2
+    ✗ segments have required fields
+      ↳  99% — ✓ 9462 / ✗ 2
+
+    CUSTOM
+    audio_file_size_kb.............: min=54.451172 avg=233.285537 med=186.326172 p(90)=469.763672 p(95)=530.232422 p(99)=650.701172 max=650.701172
+    audio_files_used...............: 9464   10.466096/s
+    segment_count..................: min=0         avg=1.045445   med=1          p(90)=1          p(95)=1          p(99)=2          max=2         
+    transcription_length...........: min=25        avg=124.986431 med=107        p(90)=243        p(95)=276        p(99)=320        max=328       
+    transcription_success..........: 99.97% 9462 out of 9464
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.27s     avg=5.51s      med=3.05s      p(90)=11.81s     p(95)=15.79s     p(99)=34.75s     max=2m59s     
+      { expected_response:true }...: min=1.27s     avg=5.47s      med=3.04s      p(90)=11.81s     p(95)=15.75s     p(99)=34.45s     max=1m2s      
+    http_req_failed................: 0.02%  2 out of 9464
+    http_reqs......................: 9464   10.466096/s
+
+    EXECUTION
+    iteration_duration.............: min=2.75s     avg=7.97s      med=5.68s      p(90)=14.04s     p(95)=18.43s     p(99)=37.04s     max=3m2s      
+    iterations.....................: 9464   10.466096/s
+    vus............................: 2      min=0            max=100
+    vus_max........................: 100    min=100          max=100
+
+    NETWORK
+    data_received..................: 60 MB  66 kB/s
+    data_sent......................: 2.3 GB 2.5 MB/s
+
+
+
+
+running (15m04.3s), 000/100 VUs, 9464 complete and 0 interrupted iterations
+stt_load_test ✓ [======================================] 000/100 VUs  15m0s
+```
+
+### 3rd Run
+
+![10 VUs](./images/default-10vu-on-Azure.png)
+
+```
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<180000' p(95)=7.48s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.07%
+
+    transcription_success
+    ✓ 'rate>0.95' rate=99.92%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 6465   7.154549/s
+    checks_succeeded...: 99.92% 6460 out of 6465
+    checks_failed......: 0.07%  5 out of 6465
+
+    ✗ status is 200
+      ↳  99% — ✓ 1292 / ✗ 1
+    ✗ has original_text
+      ↳  99% — ✓ 1292 / ✗ 1
+    ✗ has translated_text
+      ↳  99% — ✓ 1292 / ✗ 1
+    ✗ has segments array
+      ↳  99% — ✓ 1292 / ✗ 1
+    ✗ segments have required fields
+      ↳  99% — ✓ 1292 / ✗ 1
+
+    CUSTOM
+    audio_file_size_kb.............: min=54.451172 avg=230.092135 med=182.890625 p(90)=457.263672 p(95)=528.513672 p(99)=629.607422 max=650.701172
+    audio_files_used...............: 1294   1.432017/s
+    segment_count..................: min=0         avg=1.047988   med=1          p(90)=1          p(95)=1          p(99)=2          max=2         
+    transcription_length...........: min=25        avg=123.336174 med=107        p(90)=243        p(95)=273        p(99)=320        max=328       
+    transcription_success..........: 99.92% 1292 out of 1293
+    translation_length.............: min=4         avg=4          med=4          p(90)=4          p(95)=4          p(99)=4          max=4         
+
+    HTTP
+    http_req_duration..............: min=1.25s     avg=3.3s       med=2.24s      p(90)=6.31s      p(95)=7.48s      p(99)=9.11s      max=2m59s     
+      { expected_response:true }...: min=1.25s     avg=3.17s      med=2.24s      p(90)=6.3s       p(95)=7.48s      p(99)=9.08s      max=9.55s     
+    http_req_failed................: 0.07%  1 out of 1293
+    http_reqs......................: 1293   1.43091/s
+
+    EXECUTION
+    iteration_duration.............: min=2.78s     avg=5.73s      med=4.89s      p(90)=9.15s      p(95)=10.34s     p(99)=12.19s     max=3m3s      
+    iterations.....................: 1293   1.43091/s
+    vus............................: 1      min=0            max=10
+    vus_max........................: 10     min=10           max=10
+
+    NETWORK
+    data_received..................: 8.2 MB 9.1 kB/s
+    data_sent......................: 309 MB 342 kB/s
+
+
+
+
+running (15m03.6s), 00/10 VUs, 1293 complete and 1 interrupted iterations
+stt_load_test ✓ [======================================] 00/10 VUs  15m0s
+```

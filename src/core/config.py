@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     # Application settings
-    app_version: str = "1.0.0"
+    app_version: str = Field(default="0.1.0", description="Application version", alias="APP_VERSION")
     env: str = Field(default="dev", description="Environment: dev|staging|prod", alias="APP_ENV")
     app_log_level: str = Field(default="INFO", description="Logging level", alias="APP_LOG_LEVEL")
 

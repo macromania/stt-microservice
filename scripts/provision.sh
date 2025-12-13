@@ -461,7 +461,7 @@ create_container_apps() {
       --user-assigned "${python_identity_id}" \
       --cpu "${PYTHON_CPU}" \
       --memory "${PYTHON_MEMORY}" \
-      --min-replicas 1 \
+      --min-replicas 3 \
       --max-replicas 3 \
       --target-port 80 \
       --ingress external \
@@ -497,7 +497,7 @@ create_container_apps() {
       --user-assigned "${java_identity_id}" \
       --cpu "${JAVA_CPU}" \
       --memory "${JAVA_MEMORY}" \
-      --min-replicas 1 \
+      --min-replicas 3 \
       --max-replicas 3 \
       --target-port 80 \
       --ingress external \
